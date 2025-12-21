@@ -6,8 +6,6 @@
 
   # Packages that should be installed to the user profile
   home.packages = (with pkgs; [
-    # Custom flakes
-
     # Development tools
     git-lfs
     python3
@@ -33,12 +31,14 @@
   
     # File management
     nautilus
+    duf
   
     # Utilities
     kitty
     wofi
-    neofetch
+    fastfetch
     htop
+    btop
     wget
     waybar
     hyprshot
@@ -46,7 +46,6 @@
     hyprpaper
     hyprlock
     swaynotificationcenter
-    stow
     playerctl
     pavucontrol
     nwg-look
@@ -57,11 +56,13 @@
     file
     wl-clipboard
     blueman
+    yt-dlp
   
     # Themes/Appearance
     catppuccin-gtk
     catppuccin-cursors
     rose-pine-hyprcursor
+    catppuccin-papirus-folders
 ]) ++ [
     # Custom flakes
     inputs.affinity-nix.packages.x86_64-linux.v3
@@ -70,11 +71,16 @@
   # Basic program configurations
   programs.git = {
     enable = true;
-    settings.user = {
-      name = "Kirill Menke";
-      email = "kirill.menke@outlook.de";
+    settings = {
+      user.name = "Kirill Menke";
+      user.email = "kirill.menke@outlook.de";
+      init.defaultBranch = "main";
+      pull.rebase = true;
+      push.autoSetupRemote = true;
     };
   };
+
+  programs.delta.enableGitIntegration = true;
 
   programs.zsh = {
     enable = true;
@@ -141,9 +147,8 @@
   };
 
   # Manage dotfiles
-  # home.file.".config/hypr".source = ./dotfiles/hypr;
+  home.file.".config/hypr".source = ./dotfiles/hypr;
 
-  # This value determines the Home Manager release
   home.stateVersion = "24.11";
 
   # Let Home Manager manage itself

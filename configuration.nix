@@ -80,7 +80,7 @@
     
     # Thumbnail generation (used by system services)
     libheif
-    libheif.out
+    # libheif.out
     ffmpeg-headless
     ffmpegthumbnailer
     
@@ -88,10 +88,6 @@
     usbutils
     usbmuxd
     ifuse
-    
-    # System mount services
-    gvfs
-    udisks2
   ];
 
   fonts.packages = with pkgs; [
@@ -181,7 +177,7 @@
   # networking.firewall.allowedTCPPorts = [ ... ];
   # networking.firewall.allowedUDPPorts = [ ... ];
   # Or disable the firewall altogether.
-  networking.firewall.enable = false;
+  networking.firewall.enable = true;
 
   # This value determines the NixOS release from which the default
   # settings for stateful data, like file locations and database versions
