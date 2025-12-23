@@ -7,10 +7,8 @@
   # Packages that should be installed to the user profile
   home.packages = (with pkgs; [
     # Development tools
-    git-lfs
     python3
     nodejs_22
-    claude-code
   
     # GUI Applications
     bottles
@@ -18,33 +16,21 @@
     signal-desktop
     firefox
     krita
-    discord
     spotify
-    vscode
     thunderbird
   
     # Media applications
-    zathura
-    imv
     celluloid
-    mpv
   
     # File management
     nautilus
     duf
-  
+ 
     # Utilities
-    kitty
-    wofi
-    fastfetch
-    htop
-    btop
     wget
-    waybar
-    hyprshot
-    hypridle
     hyprpaper
-    hyprlock
+    hypridle
+    waybar
     swaynotificationcenter
     playerctl
     pavucontrol
@@ -68,6 +54,54 @@
     inputs.affinity-nix.packages.x86_64-linux.v3
 ];
 
+  # Development Tools
+  programs.claude-code = {
+    enable = true;
+  };
+
+  # GUI Applications
+  programs.discord = {
+    enable = true;
+  };
+
+  programs.vscode = {
+    enable = true;
+  };
+
+  # Media Applications
+  programs.zathura = {
+    enable = true;
+  };
+  
+  programs.imv = {
+    enable = true;
+  };
+
+  programs.mpv = {
+    enable = true;
+  };
+
+  # Utilities
+  programs.wofi = {
+    enable = true;
+  };
+
+  programs.fastfetch = {
+    enable = true;
+  };
+      
+  programs.htop = {
+    enable = true;
+  };
+
+  programs.btop = {
+    enable = true;
+  };
+
+  programs.hyprshot = {
+    enable = true;
+  };
+
   # Basic program configurations
   programs.git = {
     enable = true;
@@ -78,6 +112,7 @@
       pull.rebase = true;
       push.autoSetupRemote = true;
     };
+    lfs.enable = true;
   };
 
   programs.delta.enableGitIntegration = true;
@@ -144,6 +179,14 @@
   programs.neovim = {
     enable = true;
     defaultEditor = true;
+    extraConfig = ''
+      set tabstop=2
+      set shiftwidth=2
+      set expandtab
+      set clipboard=unnamedplus
+      inoremap jj <Esc>
+      nnoremap dd "_dd
+    '';
   };
 
   # Manage dotfiles
