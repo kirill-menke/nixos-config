@@ -31,13 +31,10 @@
     hyprpaper
     hypridle
     waybar
-    swaynotificationcenter
     playerctl
     pavucontrol
     nwg-look
-    udiskie
     imagemagick
-    wtype
     pulsemixer
     file
     wl-clipboard
@@ -102,7 +99,14 @@
     enable = true;
   };
 
-  # Basic program configurations
+  services.swaync = {
+    enable = true;
+  };
+
+  services.udiskie = {
+    enable = true;
+  };
+   
   programs.git = {
     enable = true;
     settings = {
@@ -188,8 +192,7 @@
       nnoremap dd "_dd
     '';
   };
-
-  # Manage dotfiles
+  
   home.file.".config/hypr".source = ./dotfiles/hypr;
 
   home.stateVersion = "24.11";

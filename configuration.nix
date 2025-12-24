@@ -147,7 +147,7 @@
   # For Wayland/Hyprland compatibility
   hardware.nvidia = {
     modesetting.enable = true;
-    powerManagement.enable = false;  # Can cause sleep issues
+    powerManagement.enable = true;
     open = false;  # Use proprietary drivers (GTX 1080Ti isn't supported by open drivers)
     nvidiaSettings = true;
     package = config.boot.kernelPackages.nvidiaPackages.stable;
