@@ -4,6 +4,8 @@
   home.username = "kirill";
   home.homeDirectory = "/home/kirill";
 
+
+  # All packages without an equivalent home-manager module (yet)
   home.packages = (with pkgs; [
     # Development tools
     python3
@@ -13,10 +15,8 @@
     bottles
     google-chrome
     signal-desktop
-    firefox
     krita
     spotify
-    thunderbird
   
     # Media applications
     celluloid
@@ -27,10 +27,6 @@
  
     # Utilities
     wget
-    hyprpaper
-    hypridle
-    waybar
-    playerctl
     pavucontrol
     nwg-look
     imagemagick
@@ -51,61 +47,8 @@
 ];
 
   # Development Tools
-  programs.claude-code = {
-    enable = true;
-  };
+  programs.claude-code.enable = true;
 
-  # GUI Applications
-  programs.discord = {
-    enable = true;
-  };
-
-  programs.vscode = {
-    enable = true;
-  };
-
-  # Media Applications
-  programs.zathura = {
-    enable = true;
-  };
-  
-  programs.imv = {
-    enable = true;
-  };
-
-  programs.mpv = {
-    enable = true;
-  };
-
-  # Utilities
-  programs.wofi = {
-    enable = true;
-  };
-
-  programs.fastfetch = {
-    enable = true;
-  };
-      
-  programs.htop = {
-    enable = true;
-  };
-
-  programs.btop = {
-    enable = true;
-  };
-
-  programs.hyprshot = {
-    enable = true;
-  };
-
-  services.swaync = {
-    enable = true;
-  };
-
-  services.udiskie = {
-    enable = true;
-  };
-   
   programs.git = {
     enable = true;
     settings = {
@@ -119,6 +62,39 @@
   };
 
   programs.delta.enableGitIntegration = true;
+
+  # GUI Applications
+  programs.discord.enable = true;
+  programs.vscode.enable = true;
+  programs.thunderbird = {
+    enable = true;
+    profiles.default = {
+      isDefault = true;
+    };
+  };
+  programs.firefox.enable = true;
+
+  # Media Applications
+  programs.zathura.enable = true;
+  programs.imv.enable = true;
+  programs.mpv.enable = true;
+
+  # Utilities
+  programs.wofi = {
+    enable = true;
+  };
+
+  programs.fastfetch.enable = true;
+  programs.htop.enable = true;
+  programs.btop.enable = true;
+  programs.hyprshot.enable = true;
+  services.swaync.enable = true;
+
+  services.udiskie.enable = true;
+  services.hyprpaper.enable = true;
+  services.hypridle.enable = true;
+  services.playerctld.enable = true;
+  programs.waybar.enable = true;
 
   programs.zsh = {
     enable = true;
@@ -154,7 +130,7 @@
       grep = "grep --color=auto";
       icat = "kitty +kitten icat";
       open = "xdg-open";
-      rebuild = "sudo nixos-rebuild switch --flake .#pc";
+      rebuild = "sudo nixos-rebuild switch --flake ~/.config/nixos#pc";
     };
 
     oh-my-zsh = {

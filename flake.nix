@@ -23,7 +23,7 @@
           home-manager.useGlobalPkgs = true;
           home-manager.useUserPackages = true;
           home-manager.users.kirill = import ./home.nix;
-	  home-manager.backupFileExtension = "backup";
+	        home-manager.backupFileExtension = "backup";
           
           # Pass inputs to home.nix
           home-manager.extraSpecialArgs = { inherit inputs; };
