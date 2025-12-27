@@ -22,7 +22,6 @@
   hardware.bluetooth.enable = true;
   hardware.bluetooth.powerOnBoot = true;
 
-  # Set your time zone.
   time.timeZone = "Europe/Berlin";
 
   # Select internationalisation properties.
@@ -46,7 +45,6 @@
     variant = "";
   };
 
-  # Define a user account
   users.users.kirill = {
     isNormalUser = true;
     description = "Kirill Menke";
@@ -67,9 +65,6 @@
   	NIXOS_OZONE_WL = "1";
   };
 
-
-  # List packages installed in system profile. To search, run:
-  # $ nix search wget
   environment.systemPackages = with pkgs; [
    # Wine dependencies for system-wide Bottles support
     wine-staging
@@ -118,21 +113,9 @@
     stdenv.cc.cc.lib
   ];
 
-
   programs.steam = {
     enable = true;
-    remotePlay.openFirewall = true; # Optional: for Steam Remote Play
-    dedicatedServer.openFirewall = true; # Optional: for Source Dedicated Server
-    
-    
-    # extraCompatPackages = with pkgs; [ proton-ge-bin ];
-    # Force native Wayland with proper scaling
-    # package = pkgs.steam.override {
-    #  extraEnv = {
-    #    GDK_SCALE = "1";
-    #    GDK_DPI_SCALE = "1";
-    #  };
-    # };
+    remotePlay.openFirewall = true;
   };
 
   programs.zsh.enable = true;
@@ -152,20 +135,11 @@
     package = config.boot.kernelPackages.nvidiaPackages.stable;
   };
 
-  # Optional: Enable OpenGL
+  # Enable opengl
   hardware.graphics = {
     enable = true;
     enable32Bit = true;
   };
-
-
-  # Some programs need SUID wrappers, can be configured further or are
-  # started in user sessions.
-  # programs.mtr.enable = true;
-  # programs.gnupg.agent = {
-  #   enable = true;
-  #   enableSSHSupport = true;
-  # };
 
   # Enable the OpenSSH daemon.
   # services.openssh.enable = true;

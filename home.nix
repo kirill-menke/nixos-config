@@ -4,7 +4,6 @@
   home.username = "kirill";
   home.homeDirectory = "/home/kirill";
 
-  # Packages that should be installed to the user profile
   home.packages = (with pkgs; [
     # Development tools
     python3
