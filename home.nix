@@ -4,7 +4,6 @@
   home.username = "kirill";
   home.homeDirectory = "/home/kirill";
 
-
   # All packages without an equivalent home-manager module (yet)
   home.packages = (with pkgs; [
     # Development tools
@@ -17,6 +16,7 @@
     signal-desktop
     krita
     spotify
+    x2goclient
   
     # Media applications
     celluloid
@@ -80,10 +80,7 @@
   programs.mpv.enable = true;
 
   # Utilities
-  programs.wofi = {
-    enable = true;
-  };
-
+  programs.wofi.enable = true;
   programs.fastfetch.enable = true;
   programs.htop.enable = true;
   programs.btop.enable = true;
@@ -91,7 +88,14 @@
   services.swaync.enable = true;
 
   services.udiskie.enable = true;
-  services.hyprpaper.enable = true;
+  services.hyprpaper = {
+    enable = true;
+    settings = {
+      preload = [ "/home/kirill/Pictures/backgrounds/background.jpg" ];
+      wallpaper = [ ",/home/kirill/Pictures/backgrounds/background.jpg" ];
+    };
+  };
+
   services.hypridle.enable = true;
   services.playerctld.enable = true;
   programs.waybar.enable = true;

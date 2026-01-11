@@ -92,6 +92,13 @@
   ];
 
   services.tumbler.enable = true;
+  
+  services.jellyfin = {
+    enable = true;
+    openFirewall = true;  # Opens ports 8096 (HTTP) and 8920 (HTTPS)
+    user = "jellyfin";
+    group = "users";
+  };
 
   services.xserver = {
     enable = true;
