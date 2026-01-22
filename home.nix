@@ -9,6 +9,8 @@
     # Development tools
     python3
     nodejs_22
+    uv
+    opentofu
   
     # GUI Applications
     bottles
