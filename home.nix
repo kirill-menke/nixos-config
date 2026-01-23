@@ -11,7 +11,7 @@
     nodejs_22
     uv
     opentofu
-    awscli
+    awscli2
   
     # GUI Applications
     bottles
