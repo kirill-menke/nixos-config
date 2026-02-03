@@ -66,7 +66,7 @@
   };
 
   environment.systemPackages = with pkgs; [
-   # Wine dependencies for system-wide Bottles support
+    # Wine dependencies for system-wide Bottles support
     wine-staging
     winetricks
     gnutls
@@ -79,6 +79,7 @@
     ffmpegthumbnailer
     
     # iPhone/USB mounting support
+    ntfs3g
     usbutils
     usbmuxd
     ifuse

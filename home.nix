@@ -38,12 +38,14 @@
     wl-clipboard
     blueman
     yt-dlp
+    rclone
   
     # Themes/Appearance
     catppuccin-gtk
     catppuccin-cursors
     rose-pine-hyprcursor
     catppuccin-papirus-folders
+    noto-fonts-color-emoji
 ]) ++ [
     # Custom flakes
     inputs.affinity-nix.packages.x86_64-linux.v3
@@ -60,6 +62,12 @@
       init.defaultBranch = "main";
       pull.rebase = true;
       push.autoSetupRemote = true;
+    };
+    extraConfig = {
+      credential = {
+        helper = "!aws codecommit credential-helper $@";
+        UseHttpPath = true;
+      };
     };
     lfs.enable = true;
   };
