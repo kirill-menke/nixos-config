@@ -15,6 +15,9 @@
   boot.supportedFilesystems = [ "ntfs" "exfat" ];
 
   networking.hostName = "pc";
+  networking.hosts = {
+    "localhost:5173" = [ "oriana.local" ];
+  };
 
   # Enable networking
   networking.networkmanager.enable = true;

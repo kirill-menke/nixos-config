@@ -63,7 +63,7 @@
       pull.rebase = true;
       push.autoSetupRemote = true;
     };
-    extraConfig = {
+    settings = {
       credential = {
         helper = "!aws codecommit credential-helper $@";
         UseHttpPath = true;
