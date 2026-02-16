@@ -11,8 +11,7 @@
     nodejs_22
     uv
     opentofu
-    awscli2
-  
+    jq
     # GUI Applications
     bottles
     google-chrome
@@ -62,6 +61,7 @@
       init.defaultBranch = "main";
       pull.rebase = true;
       push.autoSetupRemote = true;
+      pager.branch = false;
     };
     settings = {
       credential = {
@@ -183,6 +183,11 @@
     '';
   };
   
+  programs.awscli = {
+    enable = true;
+    # AWS config file is not managed by Home Manager to allow aws login to write credentials
+  };
+
   home.file.".config/hypr".source = ./dotfiles/hypr;
 
   home.stateVersion = "24.11";
