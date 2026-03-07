@@ -103,7 +103,12 @@
     enable = true;
     settings = {
       preload = [ "/home/kirill/Pictures/backgrounds/background.jpg" ];
-      wallpaper = [ ",/home/kirill/Pictures/backgrounds/background.jpg" ];
+      wallpaper = [
+        {
+          monitor = "";
+          path = "/home/kirill/Pictures/backgrounds/background.jpg";
+        }
+      ];
     };
   };
 
@@ -188,7 +193,10 @@
     # AWS config file is not managed by Home Manager to allow aws login to write credentials
   };
 
-  home.file.".config/hypr".source = ./dotfiles/hypr;
+  home.file.".config/hypr" = {
+    source = ./dotfiles/hypr;
+    recursive = true;
+  };
 
   home.stateVersion = "24.11";
 
