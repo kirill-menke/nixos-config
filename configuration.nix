@@ -51,7 +51,7 @@
   users.users.kirill = {
     isNormalUser = true;
     description = "Kirill Menke";
-    extraGroups = [ "networkmanager" "wheel" ];
+    extraGroups = [ "networkmanager" "wheel" "input" ];
     shell = pkgs.zsh;
   };
 
@@ -128,6 +128,8 @@
     enable = true;
     remotePlay.openFirewall = true;
   };
+
+  programs.ydotool.enable = true;
 
   programs.zsh.enable = true;
 

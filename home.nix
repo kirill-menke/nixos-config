@@ -1,4 +1,4 @@
-{ inputs, config, pkgs, ... }:
+{ inputs, config, pkgs, lib, ... }:
 
 {
   home.username = "kirill";
@@ -35,6 +35,9 @@
     pulsemixer
     file
     wl-clipboard
+    wtype
+    appimage-run
+    ydotool
     blueman
     yt-dlp
     rclone
@@ -88,10 +91,12 @@
   # Media Applications
   programs.zathura.enable = true;
   programs.imv.enable = true;
+  home.file.".config/imv/config".source = ./dotfiles/imv/config;
   programs.mpv.enable = true;
 
   # Utilities
   programs.wofi.enable = true;
+  home.file.".config/wofi/style.css".source = ./dotfiles/wofi/style.css;
   programs.fastfetch.enable = true;
   programs.htop.enable = true;
   programs.btop.enable = true;
@@ -102,19 +107,73 @@
   services.hyprpaper = {
     enable = true;
     settings = {
-      preload = [ "/home/kirill/Pictures/backgrounds/background.jpg" ];
+      splash = false;
+      preload = [ "/home/kirill/.cache/hypr/daily-wallpaper.jpg" ];
       wallpaper = [
         {
           monitor = "";
-          path = "/home/kirill/Pictures/backgrounds/background.jpg";
+          path = "/home/kirill/.cache/hypr/daily-wallpaper.jpg";
         }
       ];
     };
   };
 
+  # Daily wallpaper text overlay
+  home.file.".config/hypr/splashes.txt".source = ./dotfiles/hypr/splashes.txt;
+  home.file.".config/hypr/scripts/daily-wallpaper.sh" = {
+    source = ./dotfiles/hypr/scripts/daily-wallpaper.sh;
+    executable = true;
+  };
+
+  systemd.user.services.daily-wallpaper = {
+    Unit.Description = "Generate daily wallpaper with text overlay";
+    Service = {
+      Type = "oneshot";
+      ExecStart = "%h/.config/hypr/scripts/daily-wallpaper.sh";
+    };
+  };
+
+  systemd.user.timers.daily-wallpaper = {
+    Unit.Description = "Daily wallpaper text timer";
+    Timer = {
+      OnCalendar = "daily";
+      Persistent = true;
+    };
+    Install.WantedBy = [ "timers.target" ];
+  };
+
+  # Ensure the generated wallpaper exists before hyprpaper starts
+  home.activation.ensureDailyWallpaper = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    mkdir -p "$HOME/.cache/hypr"
+    if [[ ! -f "$HOME/.cache/hypr/daily-wallpaper.jpg" ]]; then
+      cp "$HOME/Pictures/backgrounds/background.jpg" \
+         "$HOME/.cache/hypr/daily-wallpaper.jpg" 2>/dev/null || true
+    fi
+  '';
+
   services.hypridle.enable = true;
   services.playerctld.enable = true;
   programs.waybar.enable = true;
+
+  home.file.".config/waybar/config.jsonc".source = ./dotfiles/waybar/config.jsonc;
+  home.file.".config/waybar/mocha.css".source = ./dotfiles/waybar/mocha.css;
+  home.file.".config/waybar/style.css".source = ./dotfiles/waybar/style.css;
+  home.file.".config/waybar/scripts/gpu.sh" = {
+    source = ./dotfiles/waybar/scripts/gpu.sh;
+    executable = true;
+  };
+  home.file.".config/waybar/scripts/net-throughput.sh" = {
+    source = ./dotfiles/waybar/scripts/net-throughput.sh;
+    executable = true;
+  };
+  home.file.".config/waybar/scripts/network.sh" = {
+    source = ./dotfiles/waybar/scripts/network.sh;
+    executable = true;
+  };
+  home.file.".config/waybar/scripts/weather.sh" = {
+    source = ./dotfiles/waybar/scripts/weather.sh;
+    executable = true;
+  };
 
   programs.zsh = {
     enable = true;
@@ -193,10 +252,14 @@
     # AWS config file is not managed by Home Manager to allow aws login to write credentials
   };
 
-  home.file.".config/hypr" = {
-    source = ./dotfiles/hypr;
-    recursive = true;
+  wayland.windowManager.hyprland = {
+    enable = true;
+    systemd.enable = true;
+    extraConfig = builtins.readFile ./dotfiles/hypr/hyprland.conf;
   };
+
+  home.file.".config/hypr/hyprlock.conf".source = ./dotfiles/hypr/hyprlock.conf;
+  home.file.".config/hypr/mocha.conf".source = ./dotfiles/hypr/mocha.conf;
 
   home.stateVersion = "24.11";
 

@@ -1,0 +1,103 @@
+{
+    "layer": "top", // Waybar at top layer
+    "position": "top", // Waybar position (top|bottom|left|right)
+
+    "modules-left": ["hyprland/workspaces", "tray"],
+    "modules-center": ["custom/net-throughput", "memory", "cpu", "temperature", "custom/gpu"],
+    "modules-right": ["custom/network", "bluetooth", "hyprland/language", "pulseaudio", "custom/weather", "clock"],
+    "hyprland/workspaces": {
+        "disable-scroll": true,
+        "all-outputs": true,
+        "format": "{icon}",
+        "format-icons": {
+            "1": "●",
+            "2": "●",
+            "3": "●",
+            "4": "●",
+            "5": "●",
+            "6": "●",
+            "7": "●",
+            "8": "●",
+            "9": "●",
+            "10": "●",
+            "active": "◉",
+            "urgent": "⚠",
+            "default": "○"
+        }
+    },
+    "custom/weather": {
+        "exec": "~/.config/waybar/scripts/weather.sh",
+        "return-type": "json",
+        "interval": 60,
+        "tooltip": true
+    },
+    "clock": {
+        "timezone": "Europe/Berlin",
+        "tooltip-format": "<big>{:%Y %B}</big>\n<tt><small>{calendar}</small></tt>",
+        "format-alt": "󰃭 {:%d/%m/%Y}",
+        "format": "󰥔 {:%H:%M}"
+    },
+    "pulseaudio": {
+        "format": "{icon} {volume}%",
+        "format-muted": "󰖁",
+        "format-icons": {
+            "default": ["󰕿", "󰖀", "󰕾"]
+        },
+        "on-click": "pavucontrol"
+    },
+    "hyprland/language": {
+        "format": "󰌌 {}",
+        "format-en": "US",
+        "format-de": "DE",
+        "on-click": "hyprctl switchxkblayout all next"
+    },
+    "custom/network": {
+        "exec": "~/.config/waybar/scripts/network.sh",
+        "return-type": "json",
+        "interval": 5,
+        "tooltip": true,
+        "on-click": "cut -d'|' -f1 /tmp/waybar-network-public-ip | wl-copy"
+    },
+    "bluetooth": {
+        "format": "󰂯 {status}",
+        "format-connected": "󰂱 {num_connections}",
+        "format-disabled": "󰂲",
+        "tooltip-format": "{controller_alias}\t{controller_address}",
+        "tooltip-format-connected": "{controller_alias}\t{controller_address}\n\n{device_enumerate}",
+        "tooltip-format-enumerate-connected": "{device_alias}\t{device_address}",
+        "on-click": "blueman-manager"
+    },
+    "tray": {
+        "icon-size": 18,
+        "spacing": 10,
+        "show-passive-items": true
+    },
+    "memory": {
+        "interval": 5,
+        "format": "󰍛 {}%",
+        "tooltip-format": "RAM: {used:0.1f}G / {total:0.1f}G"
+    },
+    "cpu": {
+        "interval": 5,
+        "format": "󰻠 {usage}%",
+        "tooltip-format": "CPU Usage: {usage}%"
+    },
+    "temperature": {
+        "interval": 5,
+        "critical-threshold": 80,
+        "format": "{temperatureC}°C",
+        "tooltip-format": "CPU Temperature: {temperatureC}°C"
+    },
+    "custom/gpu": {
+        "exec": "~/.config/waybar/scripts/gpu.sh",
+        "return-type": "json",
+        "interval": 5,
+        "tooltip": true
+    },
+    "custom/net-throughput": {
+        "exec": "~/.config/waybar/scripts/net-throughput.sh",
+        "return-type": "json",
+        "interval": 2,
+        "tooltip": true
+    }
+}
