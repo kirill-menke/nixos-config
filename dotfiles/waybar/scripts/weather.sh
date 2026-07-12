@@ -14,7 +14,7 @@ get_weather() {
 }
 
 DATA=$(get_weather)
-TEMP=$(echo "$DATA" | grep -oP '"temperature_2m":\K[0-9.-]+')
+TEMP=$(echo "$DATA" | grep -oP '"temperature_2m":\K[0-9.-]+' | awk '{printf "%.0f\n", $1}')
 CODE=$(echo "$DATA" | grep -oP '"weather_code":\K[0-9]+')
 
 case "$CODE" in

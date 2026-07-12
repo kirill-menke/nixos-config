@@ -60,7 +60,7 @@
 window {
   margin: 0px;
   padding: 10px;
-  border: 2px solid @lavender;
+  border: 2px solid @mauve;
   border-radius: 8px;
   background-color: @base;
 }
@@ -93,19 +93,23 @@ window {
 #input {
   margin: 5px 20px;
   padding: 10px;
+  padding-left: 34px;
   border: none;
   border-radius: 0.1em;
   color: @text;
   background-color: @base;
+  /* ❯ chevron replacing the magnifier (red, matches the selected border) */
+  /* wofi gives GTK no base URI for the css, so the path must be absolute */
+  background-image: url("/home/kirill/.config/wofi/chevron.svg");
+  background-repeat: no-repeat;
+  background-position: 12px center;
 }
 
 #input image {
+    /* hide the magnifier; the chevron is drawn by #input below */
+    -gtk-icon-transform: scale(0);
     border: none;
     color: @red;
-}
-
-#input * {
-  outline: 4px solid @red!important;
 }
 
 /* Text */
@@ -117,6 +121,9 @@ window {
 
 #entry {
   background-color: @base;
+  /* same border width as :selected so selection never changes entry size */
+  border: 1px solid transparent;
+  border-radius: 8px;
 }
 
 #entry arrow {
@@ -126,7 +133,9 @@ window {
 
 /* Selected Entry */
 #entry:selected {
-  border: 0.11em solid @lavender;
+  background: @surface0;
+  border: 1px solid @red;
+  border-radius: 8px;
 }
 
 #entry:selected #text {
@@ -134,5 +143,5 @@ window {
 }
 
 #entry:drop(active) {
-  background-color: @lavender!important;
+  background-color: @lavender;
 }

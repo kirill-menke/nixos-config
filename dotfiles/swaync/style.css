@@ -1,0 +1,37 @@
+@import "mocha.css";
+* { font-family: "FantasqueSansM Nerd Font"; font-size: 15px; }
+
+/* popups — the waybar pill, enlarged */
+.notification {
+  margin: 6px 10px;  padding: 4px;
+  background: alpha(@base, 0.95);
+  border: 2px solid @surface1;  border-radius: 16px;
+}
+.notification-content .summary { color: @text; font-weight: 700; }
+.notification-content .body    { color: @subtext0; }
+.notification .app-name        { color: @blue; }
+.notification.low       { border-color: @surface0; opacity: 0.75; }
+.notification.critical  { border-color: @red;
+                          box-shadow: 0 0 12px alpha(@red, 0.3); }
+.notification.critical .summary,
+.notification.critical .app-name { color: @red; }
+
+/* control center */
+.control-center {
+  margin: 8px;
+  background: alpha(@base, 0.92);
+  border: 2px solid @surface0;  border-radius: 16px;
+}
+.widget-title > label   { color: @lavender; font-weight: 700; }
+.widget-title > button  { background: @surface0; color: @red;
+                          border: none; border-radius: 12px; }
+.widget-dnd, .widget-volume, .widget-mpris-player {
+  background: @surface0; border-radius: 14px; margin: 6px 10px;
+}
+.widget-dnd             { padding: 8px 12px; color: @text; }
+.widget-dnd > switch    { border-radius: 999px; background: @surface1; }
+.widget-dnd > switch:checked { background: @mauve; }
+trough           { background: @surface1; border-radius: 999px; }
+trough highlight { background: @mauve;    border-radius: 999px; }
+.widget-mpris-title    { color: @text; font-weight: 700; }
+.widget-mpris-subtitle { color: @subtext0; }

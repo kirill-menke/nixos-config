@@ -1,0 +1,18 @@
+{
+  "positionX": "right",
+  "positionY": "top",
+  "control-center-margin-top": 8,
+  "widgets": [
+    "title", "dnd", "mpris",
+    "volume",
+    "notifications"
+  ],
+  "widget-config": {
+    "dnd": {
+      "text": "󰖔  Do Not Disturb"
+    },
+    "volume": {
+      "label": "󰕾"
+    }
+  }
+}
