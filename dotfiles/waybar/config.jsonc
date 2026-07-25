@@ -1,29 +1,31 @@
 {
-    "layer": "top", // Waybar at top layer
+    // "bottom" so fullscreen windows (e.g. a movie on the TV) cover the bar.
+    // At "top" it draws above even fullscreen surfaces. The exclusive zone
+    // still reserves space, so the bar stays visible during normal use.
+    "layer": "bottom",
     "position": "top", // Waybar position (top|bottom|left|right)
 
     "modules-left": ["hyprland/workspaces", "tray"],
-    "modules-center": ["custom/net-throughput", "memory", "cpu", "temperature", "custom/gpu"],
-    "modules-right": ["custom/network", "bluetooth", "hyprland/language", "pulseaudio", "custom/weather", "clock"],
+    "modules-center": ["group/hw"],
+    "modules-right": ["custom/network", "bluetooth", "hyprland/language", "pulseaudio", "custom/weather", "clock", "custom/pomodoro", "custom/power"],
+
+    // One box carries the pill background, so the rounded ends stay intact
+    // when a member (e.g. GPU) hides itself
+    "group/hw": {
+        "orientation": "inherit",
+        "modules": ["custom/net-speed", "memory", "cpu", "temperature", "custom/gpu"]
+    },
     "hyprland/workspaces": {
         "disable-scroll": true,
-        "all-outputs": true,
+        "all-outputs": true, // set false later if you go per-monitor
         "format": "{icon}",
         "format-icons": {
-            "1": "●",
-            "2": "●",
-            "3": "●",
-            "4": "●",
-            "5": "●",
-            "6": "●",
-            "7": "●",
-            "8": "●",
-            "9": "●",
-            "10": "●",
             "active": "◉",
-            "urgent": "⚠",
+            "visible": "●",
+            "urgent": "●",
             "default": "○"
-        }
+        },
+        "on-click": "activate"
     },
     "custom/weather": {
         "exec": "~/.config/waybar/scripts/weather.sh",
@@ -33,9 +35,21 @@
     },
     "clock": {
         "timezone": "Europe/Berlin",
-        "tooltip-format": "<big>{:%Y %B}</big>\n<tt><small>{calendar}</small></tt>",
-        "format-alt": "󰃭 {:%d/%m/%Y}",
-        "format": "󰥔 {:%H:%M}"
+        "format": "{:%a %d %b %H:%M}",
+        "tooltip-format": "<tt>{calendar}</tt>"
+    },
+    "custom/pomodoro": {
+        "exec": "~/.config/waybar/scripts/pomodoro-status.sh",
+        "return-type": "json",
+        "interval": 1,
+        "tooltip": true,
+        "on-click": "pomodoro-popup",
+        "on-click-right": "~/.config/waybar/scripts/pomodoro-reset.sh"
+    },
+    "custom/power": {
+        "format": "⏻",
+        "on-click": "~/.config/hypr/scripts/power-menu.sh",
+        "tooltip": false
     },
     "pulseaudio": {
         "format": "{icon} {volume}%",
@@ -43,7 +57,11 @@
         "format-icons": {
             "default": ["󰕿", "󰖀", "󰕾"]
         },
-        "on-click": "pavucontrol"
+        // Left click: pick the output sink. This is worth having on the
+        // primary click because `play` keys its whole behaviour (Atmos
+        // bitstreaming, 4K/HDR mode switch) off which sink is default.
+        "on-click": "~/.config/hypr/scripts/audio-sink-menu.sh",
+        "on-click-right": "pavucontrol"
     },
     "hyprland/language": {
         "format": "󰌌 {}",
@@ -94,10 +112,9 @@
         "interval": 5,
         "tooltip": true
     },
-    "custom/net-throughput": {
-        "exec": "~/.config/waybar/scripts/net-throughput.sh",
+    "custom/net-speed": {
+        "exec": "~/.config/waybar/scripts/net-speed.sh",
         "return-type": "json",
-        "interval": 2,
-        "tooltip": true
+        "interval": 2
     }
 }
