@@ -4,14 +4,21 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     affinity-nix.url = "github:mrshmllow/affinity-nix";
-    
+    spicetify-nix.url = "github:Gerg-L/spicetify-nix";
+    nix-claude-code.url = "github:ryoppippi/nix-claude-code";
+
+    nvidia-pstated = {
+      url = "github:sasha0552/nvidia-pstated";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     home-manager = {
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
-  outputs = { self, nixpkgs, home-manager, affinity-nix, ... }@inputs: {
+  outputs = { self, nixpkgs, home-manager, affinity-nix, nvidia-pstated, ... }@inputs: {
     nixosConfigurations.pc = nixpkgs.lib.nixosSystem {
       system = "x86_64-linux";
       specialArgs = { inherit inputs; };
