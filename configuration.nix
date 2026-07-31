@@ -57,6 +57,18 @@ in
   # Enable networking
   networking.networkmanager.enable = true;
 
+  # mDNS/zeroconf, so *.local names resolve (e.g. the NAS as nixos.local)
+  # instead of having to look up its address in the router's DHCP leases.
+  #   nssmdns4     - wires mdns into /etc/nsswitch.conf, which is what actually
+  #                  makes ssh/ping/curl able to resolve .local at all
+  #   openFirewall - opens UDP/5353; without it the firewall drops the mDNS
+  #                  replies, since multicast responses aren't ESTABLISHED
+  services.avahi = {
+    enable = true;
+    nssmdns4 = true;
+    openFirewall = true;
+  };
+
   hardware.bluetooth.enable = true;
   hardware.bluetooth.powerOnBoot = true;
 
