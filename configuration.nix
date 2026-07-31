@@ -109,17 +109,12 @@ in
   systemd.tmpfiles.rules = [
     "d /media/kirill 0755 kirill users -"
     "d /media/kirill/iphone 0755 kirill users -"
-    # Let Jellyfin (uid jellyfin) reach the movie library.  /home/kirill is
-    # 0700, so without this the Movies library at /home/kirill/Videos is
-    # unreadable and scans silently find nothing.
-    # Traverse-only on the home directory: Jellyfin can pass through but
-    # cannot list it, so nothing else in ~ is exposed.
-    # Note a named-user entry *replaces* what that user would otherwise get,
-    # it does not add to it -- granting only --x on Videos (already o+rx)
-    # downgraded Jellyfin and broke its directory watcher.
-    "a+ /home/kirill - - - - u:jellyfin:--x"
-    "a+ /home/kirill/Videos - - - - u:jellyfin:r-x"
-    "A+ /home/kirill/Videos/movies - - - - u:jellyfin:rX"
+    # NOTE: the jellyfin ACLs that used to live here were dropped when Jellyfin
+    # moved to the NAS -- the jellyfin user no longer exists on this host, and
+    # tmpfiles rules naming a nonexistent user fail at activation.
+    # The ACLs already written to disk are inert but persist; clear them with
+    #   setfacl -R -x u:jellyfin /home/kirill/Videos
+    # once the library has been moved off this machine.
   ];
 
   environment.sessionVariables = {
@@ -156,11 +151,28 @@ in
 
   services.tumbler.enable = true;
   
-  services.jellyfin = {
-    enable = true;
-    openFirewall = true;  # Opens ports 8096 (HTTP) and 8920 (HTTPS)
-    user = "jellyfin";
-    group = "users";
+  # Jellyfin moved to the NAS (hosts/nas/media.nix) -- it is always on and the
+  # library lives there now. Reach it at http://nas.local:8096.
+  #
+  # The library is still mounted locally, below, because the Jellyfin webOS app
+  # on the C4 cannot bitstream Dolby TrueHD. Playing from this machine over
+  # HDMI is the only path that gets lossless TrueHD Atmos to the Q995GF, so
+  # `play <file>` must keep working against the same files.
+  fileSystems."/mnt/media" = {
+    device = "nas.local:/tank/data/media";
+    fsType = "nfs";
+    options = [
+      # Don't block boot on the NAS being up, and don't wedge the desktop if it
+      # goes away mid-session -- `soft` returns an error instead of hanging.
+      "x-systemd.automount"
+      "noauto"
+      "x-systemd.idle-timeout=600"
+      "soft"
+      "timeo=150"
+      "retrans=3"
+      "ro"
+      "nfsvers=4.2"
+    ];
   };
 
   services.xserver = {
