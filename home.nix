@@ -792,6 +792,18 @@ in
         ]}"
         "PLAY_BIN=${play}/bin/play"
         "TV_BIN=${tv}/bin/tv"
+
+        # The library now lives on the NAS and is mounted here over NFS. Point
+        # the remote at that rather than the old local ~/Videos copies, so
+        # there is a single source of truth -- otherwise a film added on the
+        # NAS never appears on the phone, and deleting the local copies to
+        # reclaim the disk silently empties the library.
+        #
+        # /mnt/media is an x-systemd.automount, so the first scan triggers the
+        # mount. If the NAS is down the mount fails `soft` after ~15s and the
+        # library simply reads as empty rather than hanging forever.
+        "MPV_LIBRARY=/mnt/media/movies"
+        "MPV_SHOWS=/mnt/media/shows"
       ];
     };
     Install.WantedBy = [ "default.target" ];
