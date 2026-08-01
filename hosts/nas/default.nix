@@ -17,6 +17,7 @@
   imports = [
     ./disko.nix
     ./media.nix
+    ./subtitles.nix
   ];
 
   #############################################################################
@@ -164,6 +165,7 @@
     vim
     tmux
     htop
+    btop
     smartmontools
     nvme-cli
     ethtool
