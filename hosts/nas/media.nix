@@ -48,11 +48,24 @@ in
   # Headless box, but the Alder Lake-N iGPU is still wanted for transcoding.
   # intel-media-driver provides the iHD VAAPI driver (Gen8+), which is what
   # Jellyfin's QSV path sits on top of.
+  #
+  # intel-compute-runtime is not optional despite nothing here using OpenCL
+  # directly. `enableToneMapping = true` below makes Jellyfin build a filter
+  # chain around tonemap_opencl, and without an OpenCL ICD registered ffmpeg
+  # aborts before it decodes a single frame:
+  #
+  #     Failed to get number of OpenCL platforms: -1001   (CL_PLATFORM_NOT_FOUND_KHR)
+  #     Failed to set value 'opencl=ocl@va' for option 'init_hw_device'
+  #
+  # That kills EVERY transcode of HDR/DV content, not just an occasional one.
+  # It stayed hidden because the C4 direct-plays; it surfaces the moment any
+  # client asks for a capped bitrate, or the iPhone hits a 4K HDR file.
   hardware.graphics = {
     enable = true;
     extraPackages = with pkgs; [
       intel-media-driver # iHD -- HEVC/AV1/VP9 decode, H.264/HEVC encode
       vpl-gpu-rt # oneVPL runtime, the modern QSV entry point
+      intel-compute-runtime # OpenCL (NEO) -- required by tonemap_opencl
     ];
   };
 
