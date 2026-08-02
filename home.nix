@@ -1056,6 +1056,10 @@ in
       # No alias for playback: `play` is a real binary on PATH, so it also works
       # from scripts, .desktop files and non-interactive shells.
       rebuild = "sudo nixos-rebuild switch --flake ~/.config/nixos#pc";
+      # Builds the NAS closure locally on the PC, copies it over SSH, then
+      # activates remotely. No sudo: building is unprivileged and activation
+      # runs as root on the NAS side.
+      rebuild-nas = "nixos-rebuild switch --flake ~/.config/nixos#nas --target-host root@nas.local";
       update = "nix flake update --flake ~/.config/nixos && sudo nixos-rebuild switch --flake ~/.config/nixos#pc";
     };
 

@@ -15,6 +15,7 @@
 }:
 {
   imports = [
+    ./adguard.nix
     ./disko.nix
     ./media.nix
     ./subtitles.nix
@@ -84,8 +85,9 @@
 
   networking.hostName = "nas";
 
-  # DHCP on whichever port is patched. The lease is keyed to the NIC MAC, so
-  # this host keeps 192.168.0.175 across reboots and across the install itself.
+  # Historically DHCP on whichever port is patched; since this box became the
+  # LAN's DHCP server (adguard.nix), enp2s0 is static 192.168.0.175 and this
+  # default only still applies to the unpatched enp3s0.
   networking.useDHCP = lib.mkDefault true;
 
   # Announce as nas.local, so the box is reachable without consulting DHCP
