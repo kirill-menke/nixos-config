@@ -1052,6 +1052,9 @@ in
       claude = "claude --allow-dangerously-skip-permissions";
       grep = "grep --color=auto";
       icat = "kitty +kitten icat";
+      # Download a torrent into ~/Videos/Downloads without seeding afterwards;
+      # quote the magnet link (it contains &) e.g. magnet 'magnet:?xt=...'
+      magnet = "aria2c --seed-time=0 --dir ~/Videos/Downloads";
       open = "xdg-open";
       # No alias for playback: `play` is a real binary on PATH, so it also works
       # from scripts, .desktop files and non-interactive shells.
