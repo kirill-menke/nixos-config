@@ -49,5 +49,12 @@
   # LAN gets. This makes Jellyfin (8096) and SSH reachable remotely; the NFS
   # export stays LAN-only regardless, because exports are restricted to
   # 192.168.0.0/24.
+  #
+  # Note what this delegates: "a device on this tailnet" stops meaning "a
+  # device this account owns" the moment a machine is shared with an external
+  # user, and the host firewall cannot tell the two apart. Port-level access
+  # for shared guests is therefore decided entirely by the tailnet policy in
+  # tailscale-policy.hujson (control-plane state, not applied by rebuild).
+  # Anything opened here is open to whoever that policy lets in.
   networking.firewall.trustedInterfaces = [ "tailscale0" ];
 }

@@ -1,0 +1,69 @@
+// Tailnet access policy.
+//
+// This file is NOT applied by nixos-rebuild. The policy lives on Tailscale's
+// coordination server, not on any host -- it is what the control plane
+// compiles and pushes to every node as a packet filter, so no amount of
+// configuration on this box can set it. It is checked in anyway, because the
+// alternative is that the only copy of a security-relevant rule set lives in
+// a browser text box with no history and no review.
+//
+// Apply after editing (needs an access token from the admin console,
+// Settings -> Keys; treat it like a password and revoke when done):
+//
+//   curl -sS -X POST \
+//     -H "Authorization: Bearer $TS_API_TOKEN" \
+//     -H "Content-Type: application/hujson" \
+//     --data-binary @hosts/nas/tailscale-policy.hujson \
+//     https://api.tailscale.com/api/v2/tailnet/-/acl
+//
+// Swap the path for .../acl/validate to check it without applying. Verify
+// what the node actually received, which is the only thing that matters:
+//
+//   ssh root@nas.local tailscale debug netmap | sed -n '/"PacketFilter"/,/^\t\]/p'
+//
+// Why the shared-user rule exists at all: hosts/nas/tailscale.nix trusts
+// tailscale0 wholesale, so the host firewall opens every port to anyone on
+// the tailnet -- including sshd on 22 and, worse, the AdGuard UI on 3000,
+// which has no login and controls DNS for the whole LAN. That is fine for
+// devices this account owns and completely wrong for an external user who
+// accepted a Jellyfin share. The default policy is a single allow-all grant,
+// under which a shared guest gets all of it; policies are a union of allows
+// with no deny rule, so the allow-all has to be narrowed to
+// autogroup:member, not merely supplemented.
+{
+	"hosts": {
+		"nas": "100.73.68.105",
+	},
+
+	"grants": [
+		// This account: unrestricted. Named explicitly rather than via
+		// autogroup:member, because guests invited through Users -> Invite
+		// external users become members too and would inherit the whole box.
+		{"src": ["kirill.menke@outlook.de"], "dst": ["*"], "ip": ["*"]},
+
+		// Everyone else on the tailnet: Jellyfin and nothing else. Guests
+		// arrive through two different doors -- a user invite makes them a
+		// member, a device share puts them in autogroup:shared -- and both
+		// doors lead here. Granting the autogroups rather than naming people
+		// means inviting the next guest is one click with no policy edit,
+		// which matters because the failure mode of forgetting is silent:
+		// denied traffic is dropped, so the guest sees a connection timeout
+		// that looks identical to Tailscale not being installed.
+		//
+		// Note this is deliberately not "members get everything, guests get
+		// less" -- membership here is a login, not a trust level. Anyone
+		// admitted should reach 8096 and nothing else; only the account above
+		// is trusted with sshd on 22 and the passwordless AdGuard UI on 3000.
+		{"src": ["autogroup:member"], "dst": ["nas"], "ip": ["tcp:8096"]},
+		{"src": ["autogroup:shared"], "dst": ["nas"], "ip": ["tcp:8096"]},
+	],
+
+	"ssh": [
+		{
+			"action": "check",
+			"src":    ["autogroup:member"],
+			"dst":    ["autogroup:self"],
+			"users":  ["autogroup:nonroot", "root"],
+		},
+	],
+}
