@@ -622,6 +622,7 @@ in
     appimage-run
     ydotool
     blueman
+    (lib.lowPrio sox)  # audio recording for Claude Code voice mode; lowPrio: its bin/play must lose to our play launcher
     yt-dlp
     rclone
     rtorrent
