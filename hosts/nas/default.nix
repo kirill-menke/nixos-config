@@ -16,6 +16,7 @@
 {
   imports = [
     ./adguard.nix
+    ./arr.nix
     ./disko.nix
     ./media.nix
     ./subtitles.nix
@@ -175,6 +176,7 @@
     pciutils
     rsync
     curl
+    ffmpeg-headless
   ];
 
   nix.settings.experimental-features = [

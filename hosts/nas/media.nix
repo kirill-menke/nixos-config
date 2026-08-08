@@ -32,10 +32,16 @@ in
 
   # Owned by the jellyfin user so it can index, but group-writable by `users`
   # so you can drop files in over NFS without sudo.
+  #
+  # Setgid (2775, not 0775) because Sonarr and Radarr create show and season
+  # directories in here as their own users. Without the sticky group those
+  # land as sonarr:sonarr / radarr:radarr and the group-writable property
+  # above quietly stops holding one level down -- you would only notice the
+  # next time you tried to touch an auto-imported season by hand.
   systemd.tmpfiles.rules = [
-    "d ${mediaRoot}         0775 jellyfin users -"
-    "d ${mediaRoot}/movies  0775 jellyfin users -"
-    "d ${mediaRoot}/shows   0775 jellyfin users -"
+    "d ${mediaRoot}         2775 jellyfin users -"
+    "d ${mediaRoot}/movies  2775 jellyfin users -"
+    "d ${mediaRoot}/shows   2775 jellyfin users -"
 
     # Parent for the tmpfs transcode mount defined below.
     "d /var/cache/jellyfin  0755 jellyfin jellyfin -"
