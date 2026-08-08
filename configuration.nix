@@ -17,6 +17,24 @@ in
 
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
+  # Generations are cheap individually -- they share almost every store path,
+  # so the marginal cost of one is only what changed -- but they never expire
+  # on their own. 290 of them had accumulated here, pinning ~57 GiB that was
+  # otherwise unreachable, on top of ~185 GiB of plain garbage.
+  #
+  # Age, not count: nix.gc has no keep-newest-N option. 60d leaves roughly a
+  # month of rollback depth, which is far more than the "the last switch broke
+  # something" case this is actually for.
+  nix.gc = {
+    automatic = true;
+    dates = "weekly";
+    options = "--delete-older-than 60d";
+  };
+
+  # Hardlink identical store paths together. Costs a periodic scan, and pays
+  # for itself on a store this size.
+  nix.optimise.automatic = true;
+
   nixpkgs.overlays = [
     inputs.affinity-nix.overlays.default
     (final: prev: {
@@ -44,6 +62,10 @@ in
   # Bootloader.
   boot.loader.systemd-boot.enable = true;
   boot.loader.systemd-boot.memtest86.enable = true;
+  # Caps boot menu entries and what lands on the 1 GiB ESP. Unrelated to the
+  # store: this frees no /nix space and deletes no generations, it only stops
+  # the menu and /boot growing without bound.
+  boot.loader.systemd-boot.configurationLimit = 100;
   boot.loader.efi.canTouchEfiVariables = true;
   
   boot.blacklistedKernelModules = [ "nouveau" ];
