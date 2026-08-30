@@ -590,6 +590,12 @@ in
     google-chrome
     signal-desktop
     krita
+    # Spaced repetition for the proficiency wiki; the deck TSV comes from
+    # ~/Documents/wiki-build/export-anki.py.  The native package rather than
+    # anki-bin: both are far past the 2.1.55 that the file's `#deck column:`
+    # import directive needs, and this one is 101MB unpacked against 650MB for
+    # anki-bin's FHS environment.
+    anki
     # spotify is installed by the spicetify-nix module (see programs.spicetify)
     x2goclient
   
@@ -626,6 +632,9 @@ in
     yt-dlp
     rclone
     rtorrent
+    # Markdown in the terminal, both driven by the `md` function in programs.zsh
+    glow    # styled + paged rendering, no image support
+    mdcat   # inline images via kitty's graphics protocol, but only unpaged
 
     # Waybar pomodoro timer popup
     pomodoro-popup
@@ -1037,9 +1046,35 @@ in
       
       # Vi mode
       bindkey -v
-      
+
       # Disable beep
       unsetopt beep
+
+      # md [file...] — render markdown in the terminal.
+      #
+      # oh-my-zsh's base lib (lib/directories.zsh) defines `alias md='mkdir -p'`,
+      # and zsh refuses to parse `md() { ... }` while that alias is live: it dies
+      # with "defining function based on alias" and leaves the alias in place, so
+      # `md notes.md` would quietly mkdir instead of rendering. Drop the alias
+      # first — this runs after oh-my-zsh is sourced, so it wins. `mkdir -p` is
+      # still available as `mkd` (see shellAliases).
+      unalias md 2>/dev/null || true
+
+      # mdcat draws inline images with kitty's graphics protocol, but only when
+      # it writes straight to the terminal: `mdcat -p` pipes through a pager and
+      # silently drops every image. So documents that contain images go to mdcat
+      # unpaged (scroll them with kitty's own scrollback), and everything else
+      # goes to glow, which pages and styles more nicely. With no argument glow
+      # opens its file browser over the markdown in the current directory.
+      md() {
+        emulate -L zsh
+        (( $# )) || { glow; return }
+        if grep -qE '!\[[^]]*\]\(' -- "$@" 2>/dev/null; then
+          mdcat -- "$@"
+        else
+          glow -p -- "$@"
+        fi
+      }
     '';
     
     completionInit = ''
@@ -1053,6 +1088,9 @@ in
       claude = "claude --allow-dangerously-skip-permissions";
       grep = "grep --color=auto";
       icat = "kitty +kitten icat";
+      # oh-my-zsh's `md` (mkdir -p) is taken over by the markdown renderer in
+      # initContent, so keep the directory shortcut under a free name.
+      mkd = "mkdir -p";
       # Download a torrent into ~/Videos/Downloads without seeding afterwards;
       # quote the magnet link (it contains &) e.g. magnet 'magnet:?xt=...'
       magnet = "aria2c --seed-time=0 --dir ~/Videos/Downloads";
