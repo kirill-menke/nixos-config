@@ -148,6 +148,21 @@ in
     };
   };
 
+  # Intro Skipper (segment detection: intros/credits) shells out to ffmpeg for
+  # chromaprint fingerprinting, and resolves the binary from Jellyfin's
+  # EncodingOptions.EncoderAppPathDisplay, falling back to a bare `ffmpeg` when
+  # that is empty. It always is here: `forceEncodingConfig` above makes the
+  # pre-start script copy encoding.xml in from the store on every start, and the
+  # generated file carries no <EncoderAppPathDisplay>. Jellyfin's own
+  # MediaEncoder writes the real path back a few seconds into startup, but the
+  # plugin's constructor has already read the blank, and the next start wipes it
+  # again -- so this never settles on its own. The unit's PATH has no ffmpeg on
+  # it either (the package passes --ffmpeg= to the binary instead), so the
+  # fallback failed with "An error occurred trying to start process 'ffmpeg'".
+  # Putting jellyfin-ffmpeg on the unit's PATH makes that fallback resolve. Same
+  # derivation the module passes to --ffmpeg=, so there is only ever one ffmpeg.
+  systemd.services.jellyfin.path = [ pkgs.jellyfin-ffmpeg ];
+
   # Transcode scratch goes to the default /var/cache/jellyfin on the NVMe.
   # A tmpfs was considered and deliberately rejected: it needs explicit mount
   # ordering against jellyfin.service and pins RAM, in exchange for avoiding
