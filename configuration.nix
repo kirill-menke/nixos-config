@@ -120,9 +120,12 @@ in
   users.users.kirill = {
     isNormalUser = true;
     description = "Kirill Menke";
-    extraGroups = [ "networkmanager" "wheel" "input" ];
+    extraGroups = [ "networkmanager" "wheel" "input" "docker" ];
     shell = pkgs.zsh;
   };
+
+  # Docker — needed by Strix to run its pentest agents in a sandbox container.
+  virtualisation.docker.enable = true;
 
   # Allow unfree packages
   nixpkgs.config.allowUnfree = true;
