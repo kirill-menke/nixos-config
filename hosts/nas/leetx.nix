@@ -26,6 +26,10 @@
     # for Prowlarr's Cloudflare-gated indexers.
     openFirewall = true;
 
+    # qBittorrent sits inside the ProtonVPN namespace (vpn.nix); from this
+    # host its WebUI answers at the namespace address, not loopback.
+    qbittorrentUrl = "http://192.168.15.1:8080";
+
     # PROWLARR_API_KEY lives here, off this (public) repo. Provision once:
     #
     #   install -d -m700 /var/lib/nixos-secrets

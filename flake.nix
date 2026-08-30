@@ -30,6 +30,10 @@
       url = "path:/home/kirill/Documents/projects/leetx-api";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # Network-namespace VPN confinement for the NAS: puts qBittorrent behind
+    # ProtonVPN (see hosts/nas/vpn.nix). No nixpkgs input to follow.
+    vpn-confinement.url = "github:Maroka-chan/VPN-Confinement";
   };
 
   outputs = { self, nixpkgs, home-manager, affinity-nix, nvidia-pstated, disko, ... }@inputs: {

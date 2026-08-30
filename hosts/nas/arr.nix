@@ -113,10 +113,10 @@ in
     openFirewall = false;
     webuiPort = ports.qbitWebUI;
 
-    # Fixed rather than random so the router forward below stays valid across
-    # restarts. Incoming peer connections still require a matching port
-    # forward on the router itself -- without it you get outbound-only peers,
-    # which works but connects slowly.
+    # Outbound-only since the ProtonVPN confinement (vpn.nix): incoming peers
+    # would have to arrive through Proton's dynamic NAT-PMP port, which is not
+    # set up, so this port never sees inbound traffic. Kept fixed anyway --
+    # a random port buys nothing and a stable one keeps logs comparable.
     torrentingPort = ports.qbitTorrenting;
 
     # NOTE: the module's ExecStartPre `install`s this file over
@@ -168,9 +168,13 @@ in
         # store, and because no password can persist across a restart anyway
         # (see above).
         #
-        # Sonarr and Radarr reach the API over loopback, so LocalHostAuth
-        # covers them. The 100.64.0.0/10 whitelist is the tailnet, which is
-        # the only other way in -- the firewall never opens 8080 to the LAN.
+        # Since the VPN confinement (vpn.nix) nothing arrives over loopback:
+        # Sonarr, Radarr and leetx reach the WebUI at 192.168.15.1:8080 and
+        # their connections enter the namespace from the veth bridge, so the
+        # 192.168.15.0/24 entry is what covers them now (LocalHostAuth stays
+        # off for a shell inside the netns). 100.64.0.0/10 is the tailnet,
+        # which comes in via the port mapping on host:8080 -- the firewall
+        # never opens 8080 to the LAN.
         #
         # If either key name is wrong for this qBittorrent version the failure
         # is safe: an unrecognised key is ignored, auth stays on, and you get
@@ -178,7 +182,7 @@ in
         WebUI = {
           LocalHostAuth = false;
           AuthSubnetWhitelistEnabled = true;
-          AuthSubnetWhitelist = "100.64.0.0/10";
+          AuthSubnetWhitelist = "192.168.15.0/24, 100.64.0.0/10";
         };
       };
     };
@@ -192,10 +196,8 @@ in
   # is a trusted interface via tailscale.nix, so they are reachable over the
   # tailnet without any rule.
   #
-  # The torrenting port is the one thing that genuinely must accept traffic
-  # from outside, so it is opened on all interfaces.
-  networking.firewall = {
-    allowedTCPPorts = [ ports.qbitTorrenting ];
-    allowedUDPPorts = [ ports.qbitTorrenting ]; # DHT / uTP
-  };
+  # The torrenting port is no longer opened: qBittorrent lives inside the
+  # ProtonVPN namespace (vpn.nix), so peers could only ever reach it through
+  # the tunnel -- a hole in the host firewall would sit unused. The matching
+  # 51413 forward on the router is equally dead and should be removed.
 }
