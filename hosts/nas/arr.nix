@@ -113,10 +113,11 @@ in
     openFirewall = false;
     webuiPort = ports.qbitWebUI;
 
-    # Outbound-only since the ProtonVPN confinement (vpn.nix): incoming peers
-    # would have to arrive through Proton's dynamic NAT-PMP port, which is not
-    # set up, so this port never sees inbound traffic. Kept fixed anyway --
-    # a random port buys nothing and a stable one keeps logs comparable.
+    # Boot-time default only: proton-natpmp (vpn.nix) rewrites the listen
+    # port over the WebUI API to whatever public port Proton's NAT-PMP hands
+    # out, within a minute of every qBittorrent start. Kept fixed here anyway
+    # -- a random port buys nothing and a stable pre-NAT-PMP default keeps
+    # logs comparable.
     torrentingPort = ports.qbitTorrenting;
 
     # NOTE: the module's ExecStartPre `install`s this file over
@@ -136,27 +137,45 @@ in
       # the WebUI port and giving no obvious reason why.
       LegalNotice.Accepted = true;
 
-      # Upload as little as possible.
+      # Never seed AFTER completion, but DON'T throttle upload DURING download.
       #
       # GlobalMaxSeedingMinutes = 0 -> a torrent is paused the instant its
       # download verifies, so nothing uploads *after* completion. Paused, not
       # removed (MaxRatioAction defaults to 0 = pause), so the file stays put
       # for Sonarr/Radarr to hardlink-import and for the leetx grabs to keep.
       #
-      # GlobalUPSpeedLimit = 1 (KiB/s) caps upload *during* the download -- the
-      # part BitTorrent can't fully avoid (tit-for-tat with fellow leechers).
-      # 1 is qBittorrent's floor; 0 would mean UNLIMITED. It applies to piece
-      # data only (overhead isn't limited by default), so it won't choke the
-      # download's own control traffic, and on the well-seeded public torrents
-      # this is used for, most data comes from seeders who ignore our upload.
-      #
-      # Both render under `[BitTorrent]` as `Session\...` in qBittorrent.conf.
-      BitTorrent.Session = {
-        GlobalMaxSeedingMinutes = 0;
-        GlobalUPSpeedLimit = 1;
-      };
+      # Upload is left UNLIMITED (no GlobalUPSpeedLimit). A 1 KiB/s cap here was
+      # measured to throttle DOWNLOADS ~100x: BitTorrent's choking algorithm
+      # reciprocates at your upload rate, so peers were unchoking us at ~1 KiB/s
+      # (113 KiB/s aggregate). Uncapped, the same swarm gave 11+ MiB/s. Since
+      # seeding still stops dead at completion, uncapping only means uploading
+      # during the (now much shorter) download -- best of both.
+      BitTorrent.Session.GlobalMaxSeedingMinutes = 0;
+
+      # Queueing: adaptive rather than the hard default of 3 active downloads.
+      # Measured 2026-08: three parallel grabs from ~6-seed swarms pulled
+      # ~10 Mbit/s of a 96 Mbit/s line (per-torrent speed is bounded by the
+      # seeds' upload, not by our pipe) while better-seeded torrents sat in
+      # queuedDL. With IgnoreSlowTorrentsForQueueing, a torrent below
+      # 200 KiB/s for 60 s stops counting toward the active limit, so
+      # supply-starved swarms make room instead of parking the queue.
+      # Force-started torrents (leetx-api's stream-open priority signal)
+      # bypass these limits entirely, so the episode being watched always
+      # keeps its slot.
+      BitTorrent.Session.MaxActiveDownloads = 5;
+      BitTorrent.Session.MaxActiveTorrents = 8;
+      BitTorrent.Session.MaxActiveUploads = 5;
+      BitTorrent.Session.IgnoreSlowTorrentsForQueueing = true;
+      BitTorrent.Session.SlowTorrentsDownloadRate = 200; # KiB/s
+      BitTorrent.Session.SlowTorrentsUploadRate = 200; # KiB/s
+      BitTorrent.Session.SlowTorrentsInactivityTimer = 60; # seconds
 
       Preferences = {
+        # qBittorrent's own UPnP/NAT-PMP client would race the proton-natpmp
+        # loop (vpn.nix) for the mapping on Proton's gateway. One
+        # port-forward manager, and it is the loop.
+        Connection.UPnP = false;
+
         Downloads = {
           SavePath = "${downloadRoot}/complete";
           TempPath = "${downloadRoot}/incomplete";

@@ -18,22 +18,23 @@
 # The WireGuard config is a secret (it contains the private key) and follows
 # the same out-of-band pattern as the other secrets on this box. Generate it at
 # account.protonvpn.com -> Downloads -> WireGuard configuration: pick a P2P
-# server and enable the NAT-PMP (port forwarding) toggle (unused today, but
-# baked into the generated peer -- saves regenerating if inbound is ever
-# wanted). Then, on the NAS:
+# server and enable the NAT-PMP (port forwarding) toggle -- proton-natpmp
+# below depends on it. Then, on the NAS:
 #
 #   install -m600 <downloaded>.conf /var/lib/nixos-secrets/protonvpn-wg.conf
 #
 # Without it the proton-* namespace units fail to start -- deliberate and
 # visible, same as leetx-api's environmentFile.
 #
-# Inbound peers / NAT-PMP are deliberately skipped: Proton's forwarded port is
-# dynamic (a natpmpc loop against 10.2.0.1 plus a qBittorrent API update), and
-# this box leeches well-seeded public torrents with upload capped at the floor,
-# so outbound-only costs little. arr.nix no longer opens the torrenting port
-# and the router forward for 51413 is dead weight -- remove it.
+# Inbound peers arrive via Proton's NAT-PMP (proton-natpmp below). Being
+# connectable matters here because the swarms this box actually leeches from
+# are tiny -- measured 2026-08, the active grabs had ~6-seed swarms of which
+# only 2 accepted our outbound connections; every NATed seed we cannot dial
+# is one that can now dial us. Inbound only ever arrives through the tunnel,
+# on whatever port Proton assigns: the host firewall keeps the torrenting
+# port closed and the router forward for 51413 stays dead weight -- remove it.
 #
-{ inputs, ... }:
+{ inputs, pkgs, ... }:
 {
   imports = [ inputs.vpn-confinement.nixosModules.default ];
 
@@ -66,14 +67,88 @@
       }
     ];
 
-    # Nothing listens for inbound over the VPN -- without Proton's NAT-PMP
-    # handing us a (dynamic) forwarded port, opening 51413 here would do
-    # nothing. See the header before adding it.
+    # Proton's forwarded port is dynamic (the gateway assigns it), so it
+    # cannot be opened statically here -- proton-natpmp maintains the
+    # matching ACCEPT rule inside the namespace itself.
     openVPNPorts = [ ];
   };
 
   systemd.services.qbittorrent.vpnConfinement = {
     enable = true;
     vpnNamespace = "proton";
+  };
+
+  # Proton NAT-PMP keep-alive: ask the gateway for a port mapping every 45 s
+  # (lifetime 60 s -- Proton drops it when not renewed) and make the rest of
+  # the stack agree with whatever public port came back:
+  #
+  #   * the netns firewall policy is INPUT DROP and openVPNPorts only does
+  #     static ports, so the loop owns a `natpmp` chain it refills on drift;
+  #   * qBittorrent must listen on that exact port (Proton maps public port
+  #     P to internal port P). Compare-and-set over the WebUI API -- which
+  #     also re-applies it after a qBittorrent restart resets the config to
+  #     the static 51413 (see the serverConfig note in arr.nix).
+  #
+  # The confinement below supplies bindsTo/after on proton.service and runs
+  # the unit inside the namespace, so iptables here edits the netns tables
+  # and 127.0.0.1:8080 is the WebUI (LocalHostAuth=false covers it). The
+  # script runs under `set -e`: a natpmpc failure (tunnel down, server
+  # without NAT-PMP) exits the unit and Restart retries every 30 s.
+  systemd.services.proton-natpmp = {
+    description = "ProtonVPN NAT-PMP port forwarding for qBittorrent";
+    wantedBy = [ "multi-user.target" ];
+    # Soft ordering only: the loop must keep the mapping alive even while
+    # qBittorrent restarts, so it never binds to it.
+    after = [ "qbittorrent.service" ];
+
+    vpnConfinement = {
+      enable = true;
+      vpnNamespace = "proton";
+    };
+
+    path = with pkgs; [
+      libnatpmp
+      iptables
+      curl
+      gnugrep
+    ];
+
+    script = ''
+      qbt=http://127.0.0.1:8080/api/v2
+      while true; do
+        natpmpc -g 10.2.0.1 -a 1 0 udp 60 > /dev/null
+        out=$(natpmpc -g 10.2.0.1 -a 1 0 tcp 60)
+        port=$(printf '%s\n' "$out" | grep -oE 'Mapped public port [0-9]+' | grep -oE '[0-9]+')
+        [ -n "$port" ]
+
+        # Chain + jump survive a service restart but not a netns rebuild;
+        # re-create both idempotently before checking the rule itself.
+        iptables -w -nL natpmp > /dev/null 2>&1 || iptables -w -N natpmp
+        iptables -w -C INPUT -i proton0 -j natpmp 2> /dev/null \
+          || iptables -w -I INPUT 1 -i proton0 -j natpmp
+        if ! iptables -w -nL natpmp | grep -q "dpt:$port\b"; then
+          iptables -w -F natpmp
+          iptables -w -A natpmp -p tcp --dport "$port" -j ACCEPT
+          iptables -w -A natpmp -p udp --dport "$port" -j ACCEPT
+          echo "forwarded port now $port"
+        fi
+
+        # qBittorrent may be down mid-restart -- skip this round, not the loop.
+        cur=$(curl -sf -m 5 "$qbt/app/preferences" \
+          | grep -oE '"listen_port":[0-9]+' | grep -oE '[0-9]+' || true)
+        if [ -n "$cur" ] && [ "$cur" != "$port" ]; then
+          curl -sf -m 5 "$qbt/app/setPreferences" \
+            --data-urlencode "json={\"listen_port\":$port}" \
+            && echo "qBittorrent listen_port $cur -> $port"
+        fi
+
+        sleep 45
+      done
+    '';
+
+    serviceConfig = {
+      Restart = "always";
+      RestartSec = 30;
+    };
   };
 }
