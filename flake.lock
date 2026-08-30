@@ -194,8 +194,8 @@
         ]
       },
       "locked": {
-        "lastModified": 1788052002,
-        "narHash": "sha256-Ux/ZRy7oFuWncb8XTzllVZX8INdQhNrn83mgh4joGLI=",
+        "lastModified": 1788108319,
+        "narHash": "sha256-NyoQq6Z6CFyW9zkS8B3nRPsPYPi7l9kpBetB5A9Y6nM=",
         "path": "/home/kirill/Documents/projects/leetx-api",
         "type": "path"
       },
