@@ -136,6 +136,26 @@ in
       # the WebUI port and giving no obvious reason why.
       LegalNotice.Accepted = true;
 
+      # Upload as little as possible.
+      #
+      # GlobalMaxSeedingMinutes = 0 -> a torrent is paused the instant its
+      # download verifies, so nothing uploads *after* completion. Paused, not
+      # removed (MaxRatioAction defaults to 0 = pause), so the file stays put
+      # for Sonarr/Radarr to hardlink-import and for the leetx grabs to keep.
+      #
+      # GlobalUPSpeedLimit = 1 (KiB/s) caps upload *during* the download -- the
+      # part BitTorrent can't fully avoid (tit-for-tat with fellow leechers).
+      # 1 is qBittorrent's floor; 0 would mean UNLIMITED. It applies to piece
+      # data only (overhead isn't limited by default), so it won't choke the
+      # download's own control traffic, and on the well-seeded public torrents
+      # this is used for, most data comes from seeders who ignore our upload.
+      #
+      # Both render under `[BitTorrent]` as `Session\...` in qBittorrent.conf.
+      BitTorrent.Session = {
+        GlobalMaxSeedingMinutes = 0;
+        GlobalUPSpeedLimit = 1;
+      };
+
       Preferences = {
         Downloads = {
           SavePath = "${downloadRoot}/complete";

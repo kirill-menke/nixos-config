@@ -18,6 +18,7 @@
     ./adguard.nix
     ./arr.nix
     ./disko.nix
+    ./leetx.nix
     ./media.nix
     ./subtitles.nix
     ./tailscale.nix

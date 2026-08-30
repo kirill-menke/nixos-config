@@ -187,6 +187,23 @@
         "type": "github"
       }
     },
+    "leetx-api": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1788042288,
+        "narHash": "sha256-B87tNVrv1NPoO7nlouSdEZ7wn0juxZuYi3vlAkChIhM=",
+        "path": "/home/kirill/Documents/projects/leetx-api",
+        "type": "path"
+      },
+      "original": {
+        "path": "/home/kirill/Documents/projects/leetx-api",
+        "type": "path"
+      }
+    },
     "nix-claude-code": {
       "inputs": {
         "nixpkgs": "nixpkgs_4"
@@ -401,6 +418,7 @@
         "affinity-nix": "affinity-nix",
         "disko": "disko",
         "home-manager": "home-manager",
+        "leetx-api": "leetx-api",
         "nix-claude-code": "nix-claude-code",
         "nixpkgs": "nixpkgs_5",
         "nvidia-pstated": "nvidia-pstated",

@@ -23,6 +23,13 @@
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # Personal search/magnet/download API (Prowlarr + qBittorrent façade).
+    # Its NixOS module builds the package against this flake's nixpkgs.
+    leetx-api = {
+      url = "path:/home/kirill/Documents/projects/leetx-api";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = { self, nixpkgs, home-manager, affinity-nix, nvidia-pstated, disko, ... }@inputs: {
