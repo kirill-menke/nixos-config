@@ -115,15 +115,39 @@ let
 
     # --- TV path: native 4K at the film's exact 23.976 cadence ------------
     # Capture the current mode so it can be put back afterwards, rather than
-    # hardcoding it or relying on `hyprctl reload` (the hyprland.conf line for
+    # hardcoding it or relying on `hyprctl reload` (the hyprland.lua rule for
     # this output asks for a mode the TV cannot do and silently falls back).
     orig=$(${pkgs.hyprland}/bin/hyprctl monitors -j 2>/dev/null \
            | ${pkgs.jq}/bin/jq -r --arg m "$MON" \
              '.[]|select(.name==$m)|"\($m),\(.width)x\(.height)@\(.refreshRate),\(.x)x\(.y),\(.scale)"')
 
+    # `hyprctl keyword monitor` went away with the Lua config; the replacement
+    # is hl.monitor() through `hyprctl eval`.  Unlike the keyword it *merges*
+    # into the output's existing rule, so bitdepth and cm are always spelled
+    # out -- restoring the desktop mode would otherwise keep the film's 10-bit
+    # HDR link.  Takes the old "NAME,WxH@R,XxY,SCALE[,bitdepth,N][,cm,NAME]"
+    # string, which is also what gets saved for the restore.
+    set_monitor() {
+      local IFS=,
+      set -- $1
+      [ $# -ge 4 ] || return 0
+      local lua="output=\"$1\",mode=\"$2\",position=\"$3\",scale=$4"
+      local bitdepth=8 cm=srgb
+      shift 4
+      while [ $# -ge 2 ]; do
+        case "$1" in
+          bitdepth) bitdepth=$2 ;;
+          cm)       cm=$2 ;;
+        esac
+        shift 2
+      done
+      lua="$lua,bitdepth=$bitdepth,cm=\"$cm\""
+      ${pkgs.hyprland}/bin/hyprctl eval "hl.monitor({$lua})" >/dev/null 2>&1 || true
+    }
+
     restore() {
       if [ -n "$orig" ]; then
-        ${pkgs.hyprland}/bin/hyprctl keyword monitor "$orig" >/dev/null 2>&1 || true
+        set_monitor "$orig"
       fi
     }
     trap restore EXIT INT TERM
@@ -133,8 +157,7 @@ let
       scale=$(printf '%s' "$orig" | cut -d, -f4)
       # bitdepth 10 gives an XRGB2101010 framebuffer, which is what an HDR
       # signal needs; the TV's EDID advertises PQ/HDR10 and HLG.
-      ${pkgs.hyprland}/bin/hyprctl keyword monitor \
-        "$MON,3840x2160@23.98,$pos,$scale,bitdepth,10" >/dev/null 2>&1 || true
+      set_monitor "$MON,3840x2160@23.98,$pos,$scale,bitdepth,10"
       # Let the HDMI link re-negotiate before touching audio.
       sleep 3
     fi
@@ -184,6 +207,30 @@ let
     JQ=${pkgs.jq}/bin/jq
     FFPROBE=${pkgs.ffmpeg}/bin/ffprobe
     SOCAT=${pkgs.socat}/bin/socat
+
+    # `hyprctl keyword monitor` went away with the Lua config; the replacement
+    # is hl.monitor() through `hyprctl eval`.  Unlike the keyword it *merges*
+    # into the output's existing rule, so bitdepth and cm are always spelled
+    # out -- restoring the desktop mode would otherwise keep the film's 10-bit
+    # HDR link.  Takes the old "NAME,WxH@R,XxY,SCALE[,bitdepth,N][,cm,NAME]"
+    # string, which is also what gets saved for the restore.
+    set_monitor() {
+      local IFS=,
+      set -- $1
+      [ $# -ge 4 ] || return 0
+      local lua="output=\"$1\",mode=\"$2\",position=\"$3\",scale=$4"
+      local bitdepth=8 cm=srgb
+      shift 4
+      while [ $# -ge 2 ]; do
+        case "$1" in
+          bitdepth) bitdepth=$2 ;;
+          cm)       cm=$2 ;;
+        esac
+        shift 2
+      done
+      lua="$lua,bitdepth=$bitdepth,cm=\"$cm\""
+      $HYPR eval "hl.monitor({$lua})" >/dev/null 2>&1 || true
+    }
 
     # Fixed path so mpv-remote (the phone remote) can find the running player.
     # Every mpv started here gets it, including the plain non-TV paths.
@@ -357,7 +404,7 @@ let
         # from a film, put the desktop mode back ourselves -- its wrapper was
         # told to skip its own restore.
         if [ -n "$inherited" ]; then
-          $HYPR keyword monitor "$inherited" >/dev/null 2>&1 || true
+          set_monitor "$inherited"
         fi
         echo "$$" > "$PIDFILE"
         echo "$$" > "$MPVPIDFILE"
@@ -447,7 +494,7 @@ let
         rm -f "$PIDFILE" "$MPVPIDFILE" "$STATEFILE" "$ORIGFILE"
       fi
       if [ -n "$orig" ]; then
-        $HYPR keyword monitor "$orig" >/dev/null 2>&1 || true
+        set_monitor "$orig"
       fi
     }
     trap restore EXIT INT TERM
@@ -461,7 +508,7 @@ let
       # HDR and looks washed out.
       extra=bitdepth,10
       [ "$hdr" = yes ] && extra=bitdepth,10,cm,hdr
-      $HYPR keyword monitor "$MON,$mode,$pos,$scale,$extra" >/dev/null 2>&1 || true
+      set_monitor "$MON,$mode,$pos,$scale,$extra"
       # Let the new mode and scale settle before the window appears.
       sleep 5
     fi
@@ -509,15 +556,16 @@ let
         sleep 1
         $HYPR clients -j 2>/dev/null \
           | $JQ -e '.[]|select(.class=="mpv")' >/dev/null 2>&1 || continue
-        $HYPR dispatch focuswindow class:mpv >/dev/null 2>&1
-        $HYPR dispatch movewindow mon:$MON >/dev/null 2>&1
-        $HYPR dispatch setfloating >/dev/null 2>&1
+        # Under the Lua config `hyprctl dispatch` takes hl.dsp.* expressions.
+        $HYPR dispatch 'hl.dsp.focus({ window = "class:mpv" })' >/dev/null 2>&1
+        $HYPR dispatch "hl.dsp.window.move({ window = \"class:mpv\", monitor = \"$MON\" })" >/dev/null 2>&1
+        $HYPR dispatch 'hl.dsp.window.float({ window = "class:mpv", action = "on" })' >/dev/null 2>&1
         geo=$($HYPR monitors -j 2>/dev/null | $JQ -r --arg m "$MON" \
               '.[]|select(.name==$m)|"\((.width/.scale)|floor) \((.height/.scale)|floor) \(.x) \(.y)"')
         set -- $geo
         if [ -n "$1" ]; then
-          $HYPR dispatch resizewindowpixel exact $1 $2,class:mpv >/dev/null 2>&1
-          $HYPR dispatch movewindowpixel exact $3 $4,class:mpv >/dev/null 2>&1
+          $HYPR dispatch "hl.dsp.window.resize({ window = \"class:mpv\", x = $1, y = $2 })" >/dev/null 2>&1
+          $HYPR dispatch "hl.dsp.window.move({ window = \"class:mpv\", x = $3, y = $4 })" >/dev/null 2>&1
         fi
         break
       done
@@ -1154,8 +1202,14 @@ in
   wayland.windowManager.hyprland = {
     enable = true;
     systemd.enable = true;
-    configType = "hyprlang";
-    extraConfig = builtins.readFile ./dotfiles/hypr/hyprland.conf;
+    # Lua config: hyprlang is deprecated since Hyprland 0.55 and is dropped a
+    # release or two later.  home-manager writes hyprland.lua (plus a
+    # .luarc.json for editor completion against the hl.* stubs) and appends
+    # extraConfig verbatim after its own systemd start/stop hooks.  Switching
+    # the running session over needs `hyprctl reload full-reset` or a relogin;
+    # a plain reload stays on whichever parser the compositor started with.
+    configType = "lua";
+    extraConfig = builtins.readFile ./dotfiles/hypr/hyprland.lua;
   };
 
   home.file.".config/hypr/hyprlock.conf".source = ./dotfiles/hypr/hyprlock.conf;
