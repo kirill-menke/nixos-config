@@ -585,6 +585,7 @@ in
     uv
     opentofu
     jq
+    gh
     # GUI Applications
     # bottles  # temporarily disabled due to openldap build failure on unstable
     google-chrome
@@ -1101,7 +1102,10 @@ in
       # Builds the NAS closure locally on the PC, copies it over SSH, then
       # activates remotely. No sudo: building is unprivileged and activation
       # runs as root on the NAS side.
-      rebuild-nas = "nixos-rebuild switch --flake ~/.config/nixos#nas --target-host root@nas.local";
+      # Root SSH is disabled on the NAS (hosts/nas/default.nix); deploys go
+      # through kirill, whose passwordless sudo makes --use-remote-sudo
+      # non-interactive.
+      rebuild-nas = "nixos-rebuild switch --flake ~/.config/nixos#nas --target-host kirill@nas.local --use-remote-sudo";
       update = "nix flake update --flake ~/.config/nixos && sudo nixos-rebuild switch --flake ~/.config/nixos#pc";
     };
 

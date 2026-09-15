@@ -17,6 +17,7 @@
   imports = [
     ./adguard.nix
     ./arr.nix
+    ./claude-code.nix
     ./disko.nix
     ./leetx.nix
     ./media.nix
@@ -122,14 +123,13 @@
   services.openssh = {
     enable = true;
     settings = {
-      PermitRootLogin = "prohibit-password";
+      # Root does not log in over SSH at all; admin access is kirill + sudo
+      # (deploys use --target-host kirill@... --use-remote-sudo). Console
+      # login as root stays possible via hashedPasswordFile below.
+      PermitRootLogin = "no";
       PasswordAuthentication = false;
     };
   };
-
-  users.users.root.openssh.authorizedKeys.keys = [
-    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOzNg1J0OHBLfMX2OnvNNhXFTqqwVR+lpVh+uSYZSXY kirill@pc"
-  ];
 
   users.users.kirill = {
     isNormalUser = true;
@@ -143,6 +143,12 @@
   # No password is set for kirill (key-only login), so sudo could never be used
   # without this. Single-admin headless box; the SSH key is the real boundary.
   security.sudo.wheelNeedsPassword = false;
+
+  # Deploys push locally-built, unsigned store paths over SSH; the daemon only
+  # accepts those from trusted users, which by default is root alone. Trusting
+  # kirill grants nothing new -- passwordless wheel above is already
+  # root-equivalent.
+  nix.settings.trusted-users = [ "kirill" ];
 
   # Console fallback if the network ever fails to come up and you attach a
   # monitor.
