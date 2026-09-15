@@ -356,9 +356,7 @@ in
   # Flush journal to disk every 15s (default is 5min) — otherwise the last
   # minutes before a hard freeze never reach disk and the log looks like the
   # system died earlier than it did.
-  services.journald.extraConfig = ''
-    SyncIntervalSec=15s
-  '';
+  services.journald.settings.Journal.SyncIntervalSec = "15s";
 
   # Log MCEs / hardware errors (CPU, memory controller, PCIe AER) persistently.
   hardware.rasdaemon.enable = true;
