@@ -60,6 +60,11 @@
 # resolve through itself over the tailnet -- no loop.
 #
 { ... }:
+let
+  # This box on the LAN, and the Vodafone Station.
+  nasAddr = "192.168.0.175";
+  router = "192.168.0.1";
+in
 {
   #############################################################################
   # Static address -- required for the DHCP-server role
@@ -73,12 +78,12 @@
     useDHCP = false;
     ipv4.addresses = [
       {
-        address = "192.168.0.175";
+        address = nasAddr;
         prefixLength = 24;
       }
     ];
   };
-  networking.defaultGateway = "192.168.0.1";
+  networking.defaultGateway = router;
 
   #############################################################################
   # AdGuard Home
@@ -126,7 +131,7 @@
 
         # Reverse lookups for LAN addresses go to the router, so the query
         # log shows device names instead of bare 192.168.0.x.
-        local_ptr_upstreams = [ "192.168.0.1" ];
+        local_ptr_upstreams = [ router ];
       };
 
       filtering = {
@@ -165,7 +170,7 @@
         # Clients become resolvable as <hostname>.lan through AdGuard.
         local_domain_name = "lan";
         dhcpv4 = {
-          gateway_ip = "192.168.0.1";
+          gateway_ip = router;
           subnet_mask = "255.255.255.0";
           # .175 (this box) and .1 (router) stay outside the pool.
           range_start = "192.168.0.10";

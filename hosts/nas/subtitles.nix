@@ -19,23 +19,80 @@
   ...
 }:
 let
-  mediaRoot = "/tank/data/media";
-  credsFile = "/var/lib/nixos-secrets/opensubtitles.env";
+  inherit (config.nas) mediaRoot;
+  credsFile = "${config.nas.secretsDir}/opensubtitles.env";
 
-  fetchSubtitles = pkgs.writers.writePython3Bin "fetch-subtitles"
-    { flakeIgnore = [ "E501" ]; }
-    (builtins.readFile ./fetch-subtitles.py);
+  fetchSubtitles = pkgs.writers.writePython3Bin "fetch-subtitles" { flakeIgnore = [ "E501" ]; } (
+    builtins.readFile ./fetch-subtitles.py
+  );
 
-  stripSubtitles = pkgs.writers.writePython3Bin "strip-subtitles"
-    { flakeIgnore = [ "E501" ]; }
-    (builtins.readFile ./strip-subtitles.py);
+  stripSubtitles = pkgs.writers.writePython3Bin "strip-subtitles" { flakeIgnore = [ "E501" ]; } (
+    builtins.readFile ./strip-subtitles.py
+  );
+
+  # Both jobs are oneshots that run as jellyfin, inspect the library with
+  # ffprobe/ffmpeg, write nothing but files next to the media, and yield to
+  # whatever is playing. Only what differs between them is passed in.
+  libraryJob =
+    {
+      description,
+      exec,
+      environment,
+      timeout,
+      nice,
+      after ? [ ],
+      extraServiceConfig ? { },
+    }:
+    {
+      inherit description after;
+
+      path = [
+        pkgs.ffmpeg-headless
+        pkgs.coreutils
+      ];
+
+      serviceConfig = {
+        Type = "oneshot";
+        User = "jellyfin";
+        Group = "users";
+        Environment = [ "MEDIA_ROOT=${mediaRoot}" ] ++ environment;
+        ExecStart = lib.getExe exec;
+
+        # Nothing here should ever wedge the box. Idle I/O scheduling keeps a
+        # sweep from starving a stream that is playing off the same spindle --
+        # the pool is a single disk until the mirror lands.
+        TimeoutStartSec = timeout;
+        Nice = nice;
+        IOSchedulingClass = "idle";
+
+        # They only ever write next to the media.
+        ProtectSystem = "strict";
+        ProtectHome = true;
+        PrivateTmp = true;
+        NoNewPrivileges = true;
+        ReadWritePaths = [ mediaRoot ];
+      }
+      // extraServiceConfig;
+    };
+
+  # The inotify watcher below is the real trigger; these only catch what
+  # slipped past it (e.g. files added while it was restarting).
+  dailyBackstop = description: {
+    inherit description;
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnCalendar = "daily";
+      Persistent = true; # run on boot if the box was off at the scheduled time
+      RandomizedDelaySec = "30m";
+    };
+  };
 in
 {
   #############################################################################
   # The fetch job
   #############################################################################
 
-  systemd.services.fetch-subtitles = {
+  systemd.services.fetch-subtitles = libraryJob {
     description = "Fetch missing English subtitles from OpenSubtitles";
 
     # Strip first, then fetch. Both are triggered by the same watcher event, so
@@ -46,47 +103,26 @@ in
 
     # ffprobe decides whether a file already has a *text* subtitle track; if it
     # does, no download is needed and none of the daily quota is spent.
-    path = [
-      pkgs.ffmpeg-headless
-      pkgs.coreutils
+    exec = fetchSubtitles;
+
+    environment = [
+      # Each language is fetched independently, so a file that already has an
+      # English text track still gets German pulled. Costs one download per
+      # language per file, so the backlog trickles across days.
+      "OS_LANGS=en,de"
+      # Free tier is 20 downloads/day. Ten per run leaves headroom for a
+      # second batch the same day and means a big import trickles in rather
+      # than erroring out halfway.
+      "OS_MAX_PER_RUN=10"
+      "JELLYFIN_URL=http://127.0.0.1:8096"
     ];
 
-    serviceConfig = {
-      Type = "oneshot";
-      User = "jellyfin";
-      Group = "users";
+    timeout = "30m";
+    nice = 10;
 
-      # Credentials live on the machine, never in this repo -- it is public.
-      # Provision once (see the README block at the bottom of this file).
-      EnvironmentFile = credsFile;
-
-      Environment = [
-        "MEDIA_ROOT=${mediaRoot}"
-        # Each language is fetched independently, so a file that already has an
-        # English text track still gets German pulled. Costs one download per
-        # language per file, so the backlog trickles across days.
-        "OS_LANGS=en,de"
-        # Free tier is 20 downloads/day. Ten per run leaves headroom for a
-        # second batch the same day and means a big import trickles in rather
-        # than erroring out halfway.
-        "OS_MAX_PER_RUN=10"
-        "JELLYFIN_URL=http://127.0.0.1:8096"
-      ];
-
-      ExecStart = lib.getExe fetchSubtitles;
-
-      # Nothing here should ever wedge the box.
-      TimeoutStartSec = "30m";
-      Nice = 10;
-      IOSchedulingClass = "idle";
-
-      # It only ever writes .srt files next to the media.
-      ProtectSystem = "strict";
-      ProtectHome = true;
-      PrivateTmp = true;
-      NoNewPrivileges = true;
-      ReadWritePaths = [ mediaRoot ];
-    };
+    # Credentials live on the machine, never in this repo -- it is public.
+    # Provision once (see the README block at the bottom of this file).
+    extraServiceConfig.EnvironmentFile = credsFile;
   };
 
   #############################################################################
@@ -100,41 +136,19 @@ in
   # seconds of startup lag, paid again on every seek. Dropping the tracks
   # nobody here reads is the cheapest fix available; nothing is re-encoded.
 
-  systemd.services.strip-subtitles = {
+  systemd.services.strip-subtitles = libraryJob {
     description = "Remux new library files down to English and German subtitles";
+    exec = stripSubtitles;
 
-    path = [
-      pkgs.ffmpeg-headless
-      pkgs.coreutils
+    environment = [
+      # ffprobe reports ISO 639-2/B; releases disagree about ger vs deu, and
+      # a few tag with the two-letter code, so all the spellings are listed.
+      "KEEP_LANGS=eng,en,ger,deu,de"
     ];
 
-    serviceConfig = {
-      Type = "oneshot";
-      User = "jellyfin";
-      Group = "users";
-
-      Environment = [
-        "MEDIA_ROOT=${mediaRoot}"
-        # ffprobe reports ISO 639-2/B; releases disagree about ger vs deu, and
-        # a few tag with the two-letter code, so all the spellings are listed.
-        "KEEP_LANGS=eng,en,ger,deu,de"
-      ];
-
-      ExecStart = lib.getExe stripSubtitles;
-
-      # Remuxing 4K files is pure I/O. Idle scheduling keeps a sweep from
-      # starving a stream that is playing off the same spindle -- the pool is
-      # a single disk until the mirror lands.
-      TimeoutStartSec = "6h";
-      Nice = 15;
-      IOSchedulingClass = "idle";
-
-      ProtectSystem = "strict";
-      ProtectHome = true;
-      PrivateTmp = true;
-      NoNewPrivileges = true;
-      ReadWritePaths = [ mediaRoot ];
-    };
+    # Remuxing 4K files is pure I/O, so it gets the lower priority of the two.
+    timeout = "6h";
+    nice = 15;
   };
 
   #############################################################################
@@ -183,25 +197,8 @@ in
     '';
   };
 
-  systemd.timers.fetch-subtitles = {
-    description = "Daily backstop for subtitle fetching";
-    wantedBy = [ "timers.target" ];
-    timerConfig = {
-      OnCalendar = "daily";
-      Persistent = true; # run on boot if the box was off at the scheduled time
-      RandomizedDelaySec = "30m";
-    };
-  };
-
-  systemd.timers.strip-subtitles = {
-    description = "Daily backstop for subtitle stripping";
-    wantedBy = [ "timers.target" ];
-    timerConfig = {
-      OnCalendar = "daily";
-      Persistent = true;
-      RandomizedDelaySec = "30m";
-    };
-  };
+  systemd.timers.fetch-subtitles = dailyBackstop "Daily backstop for subtitle fetching";
+  systemd.timers.strip-subtitles = dailyBackstop "Daily backstop for subtitle stripping";
 
   #############################################################################
   # Credentials

@@ -24,20 +24,11 @@
 # that watcher fires on Sonarr's imports exactly as it does on manual copies.
 # Two subtitle fetchers would fight over the same .srt paths.
 #
-{
-  config,
-  lib,
-  pkgs,
-  ...
-}:
+{ config, lib, ... }:
 let
-  mediaRoot = "/tank/data/media";
-  downloadRoot = "/tank/data/downloads";
+  inherit (config.nas) downloadRoot;
 
   ports = {
-    prowlarr = 9696;
-    sonarr = 8989;
-    radarr = 7878;
     qbitWebUI = 8080;
     qbitTorrenting = 51413;
   };
@@ -73,9 +64,9 @@ in
   #
   # qBittorrent needs it too: not for the library, but so files it creates
   # under downloadRoot stay readable to the *arr users that hardlink them.
-  users.users.sonarr.extraGroups = [ "users" ];
-  users.users.radarr.extraGroups = [ "users" ];
-  users.users.qbittorrent.extraGroups = [ "users" ];
+  users.users = lib.genAttrs [ "sonarr" "radarr" "qbittorrent" ] (_: {
+    extraGroups = [ "users" ];
+  });
 
   #############################################################################
   # Indexer manager

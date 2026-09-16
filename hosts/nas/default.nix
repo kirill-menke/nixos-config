@@ -9,18 +9,23 @@
 #
 {
   config,
+  inputs,
   lib,
   pkgs,
   ...
 }:
 {
   imports = [
+    # nixos-anywhere runs disko at install time to partition and format.
+    inputs.disko.nixosModules.disko
+
     ./adguard.nix
     ./arr.nix
     ./claude-code.nix
     ./disko.nix
     ./leetx.nix
     ./media.nix
+    ./options.nix
     ./subtitles.nix
     ./tailscale.nix
     ./vpn.nix
@@ -166,7 +171,7 @@
   #
   # If the file is missing, root simply ends up with no valid password (login
   # via console is refused); SSH key auth is unaffected either way.
-  users.users.root.hashedPasswordFile = "/var/lib/nixos-secrets/root.hash";
+  users.users.root.hashedPasswordFile = "${config.nas.secretsDir}/root.hash";
 
   #############################################################################
   # Base tooling

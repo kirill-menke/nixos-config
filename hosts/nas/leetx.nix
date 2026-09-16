@@ -14,7 +14,7 @@
 # unlike Jellyfin this carries a POST that starts a download, and there is no
 # auth, so anything on the LAN can enqueue one.
 #
-{ inputs, ... }:
+{ inputs, config, ... }:
 {
   imports = [ inputs.leetx-api.nixosModules.default ];
 
@@ -38,7 +38,7 @@
     #   chmod 600 /var/lib/nixos-secrets/leetx-api.env
     #
     # Without it the unit fails to start -- deliberate and visible.
-    environmentFile = "/var/lib/nixos-secrets/leetx-api.env";
+    environmentFile = "${config.nas.secretsDir}/leetx-api.env";
   };
 
   #############################################################################

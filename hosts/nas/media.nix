@@ -16,14 +16,17 @@
 # one and pass it untouched over eARC to the Q995GF, so you still get real
 # object-based Atmos -- lossy rather than lossless. Nothing is transcoded.
 #
-{
-  config,
-  lib,
-  pkgs,
-  ...
-}:
+{ config, pkgs, ... }:
 let
-  mediaRoot = "/tank/data/media";
+  inherit (config.nas) mediaRoot;
+
+  # The fixed ports pinned in services.nfs.server below, so the firewall
+  # rule cannot drift from them.
+  nfsPorts = with config.services.nfs.server; [
+    statdPort
+    lockdPort
+    mountdPort
+  ];
 in
 {
   #############################################################################
@@ -191,16 +194,7 @@ in
   };
 
   networking.firewall = {
-    allowedTCPPorts = [
-      2049 # nfs4
-      4000
-      4001
-      4002
-    ];
-    allowedUDPPorts = [
-      4000
-      4001
-      4002
-    ];
+    allowedTCPPorts = [ 2049 ] ++ nfsPorts; # 2049 is nfs4 itself
+    allowedUDPPorts = nfsPorts;
   };
 }

@@ -47,14 +47,14 @@ in
 {
   # This host otherwise allows no unfree packages; scope the exception to
   # exactly this one instead of flipping allowUnfree globally.
-  nixpkgs.config.allowUnfreePredicate =
-    pkg: builtins.elem (lib.getName pkg) [ "claude-code" ];
+  nixpkgs.config.allowUnfreePredicate = pkg: builtins.elem (lib.getName pkg) [ "claude-code" ];
 
   environment.systemPackages = [ pkgs.claude-code ];
 
-  systemd.tmpfiles.rules =
-    [ "d /home/kirill/projects 0755 kirill users -" ]
-    ++ map (p: "d ${projectDir p} 0755 kirill users -") projects;
+  systemd.tmpfiles.rules = [
+    "d /home/kirill/projects 0755 kirill users -"
+  ]
+  ++ map (p: "d ${projectDir p} 0755 kirill users -") projects;
 
   systemd.services = lib.listToAttrs (
     map (p: {

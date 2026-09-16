@@ -36,36 +36,29 @@
     vpn-confinement.url = "github:Maroka-chan/VPN-Confinement";
   };
 
-  outputs = { self, nixpkgs, home-manager, affinity-nix, nvidia-pstated, disko, ... }@inputs: {
-    # Headless NAS (TerraMaster F4-425 Plus). Deliberately does NOT pull in
-    # home-manager or anything from ./configuration.nix -- it shares only the
-    # flake inputs with the desktop, not its configuration.
-    nixosConfigurations.nas = nixpkgs.lib.nixosSystem {
+  outputs =
+    { nixpkgs, ... }@inputs:
+    let
       system = "x86_64-linux";
-      specialArgs = { inherit inputs; };
-      modules = [
-        disko.nixosModules.disko
-        ./hosts/nas
-      ];
-    };
 
-    nixosConfigurations.pc = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      specialArgs = { inherit inputs; };
-      modules = [
-        ./configuration.nix
-        
-        home-manager.nixosModules.home-manager
-        {
-          home-manager.useGlobalPkgs = true;
-          home-manager.useUserPackages = true;
-          home-manager.users.kirill = import ./home.nix;
-	        home-manager.backupFileExtension = "backup";
-          
-          # Pass inputs to home.nix
-          home-manager.extraSpecialArgs = { inherit inputs; };
-        }
-      ];
+      # One host per directory under ./hosts. Each host's default.nix imports
+      # the flake modules it needs itself (home-manager, disko, ...), so the
+      # desktop and the headless NAS share only the inputs, not configuration.
+      mkHost =
+        path:
+        nixpkgs.lib.nixosSystem {
+          inherit system;
+          specialArgs = { inherit inputs; };
+          modules = [ path ];
+        };
+    in
+    {
+      nixosConfigurations = {
+        pc = mkHost ./hosts/pc;
+        nas = mkHost ./hosts/nas;
+      };
+
+      # `nix fmt` formats the whole tree with the official formatter.
+      formatter.${system} = nixpkgs.legacyPackages.${system}.nixfmt-tree;
     };
-  };
 }

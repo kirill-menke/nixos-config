@@ -34,14 +34,19 @@
 # on whatever port Proton assigns: the host firewall keeps the torrenting
 # port closed and the router forward for 51413 stays dead weight -- remove it.
 #
-{ inputs, pkgs, ... }:
+{
+  inputs,
+  config,
+  pkgs,
+  ...
+}:
 {
   imports = [ inputs.vpn-confinement.nixosModules.default ];
 
   # Namespace names are capped at 7 characters (they become interface names).
   vpnNamespaces.proton = {
     enable = true;
-    wireguardConfigFile = "/var/lib/nixos-secrets/protonvpn-wg.conf";
+    wireguardConfigFile = "${config.nas.secretsDir}/protonvpn-wg.conf";
 
     # Non-connected subnets whose traffic into the namespace needs a return
     # route via the bridge: only the tailnet. Host-local processes (Sonarr,

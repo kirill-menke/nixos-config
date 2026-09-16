@@ -1,21 +1,44 @@
-{ config, pkgs, inputs, ... }:
+#
+# Desktop PC -- Hyprland workstation, HDMI path to the LG C4 for lossless
+# TrueHD playback (see `play` in ./home.nix), and the NFS client of the NAS.
+#
+{
+  config,
+  pkgs,
+  inputs,
+  ...
+}:
 
 let
   # True only when an NVIDIA card (PCI vendor 0x10de) is actually installed.
   # Used as ExecCondition on the NVIDIA-dependent units so they skip cleanly
   # while the 1080 Ti is out and start by themselves when it returns.
   # Checking /dev/nvidia* would not work: /dev/nvidiactl exists regardless.
-  nvidiaPresent =
-    "${pkgs.bash}/bin/bash -c 'grep -qx 0x10de /sys/bus/pci/devices/*/vendor'";
+  nvidiaPresent = "${pkgs.bash}/bin/bash -c 'grep -qx 0x10de /sys/bus/pci/devices/*/vendor'";
 in
 {
-  imports =
-    [ # Include the results of the hardware scan.
-      ./hardware-configuration.nix
-      inputs.nvidia-pstated.nixosModules.default
-    ];
+  imports = [
+    ./hardware-configuration.nix # the nixos-generate-config scan
+    inputs.nvidia-pstated.nixosModules.default
+    inputs.home-manager.nixosModules.home-manager
+  ];
 
-  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+  # Home Manager as a NixOS module: it activates with the system, reuses the
+  # system's nixpkgs (overlays included) and installs per-user packages into
+  # /etc/profiles/per-user rather than a separate profile.
+  home-manager = {
+    useGlobalPkgs = true;
+    useUserPackages = true;
+    users.kirill = import ./home.nix;
+    backupFileExtension = "backup";
+    # Pass the flake inputs to home.nix.
+    extraSpecialArgs = { inherit inputs; };
+  };
+
+  nix.settings.experimental-features = [
+    "nix-command"
+    "flakes"
+  ];
 
   # Generations are cheap individually -- they share almost every store path,
   # so the marginal cost of one is only what changed -- but they never expire
@@ -37,16 +60,16 @@ in
 
   nixpkgs.overlays = [
     inputs.affinity-nix.overlays.default
-    (final: prev: {
+    (_final: prev: {
       python3 = prev.python3.override {
-        packageOverrides = pyfinal: pyprev: {
+        packageOverrides = _pyfinal: pyprev: {
           catppuccin = pyprev.catppuccin.overridePythonAttrs (old: {
             postPatch = (old.postPatch or "") + ''
               substituteInPlace catppuccin/__init__.py \
                 --replace-fail 'if importlib.util.find_spec("matplotlib") is not None:' \
                                'if False:'
             '';
-            disabledTestPaths = (old.disabledTestPaths or []) ++ [ "tests/test_matplotlib.py" ];
+            disabledTestPaths = (old.disabledTestPaths or [ ]) ++ [ "tests/test_matplotlib.py" ];
           });
         };
       };
@@ -60,16 +83,23 @@ in
   ];
 
   # Bootloader.
-  boot.loader.systemd-boot.enable = true;
-  boot.loader.systemd-boot.memtest86.enable = true;
-  # Caps boot menu entries and what lands on the 1 GiB ESP. Unrelated to the
-  # store: this frees no /nix space and deletes no generations, it only stops
-  # the menu and /boot growing without bound.
-  boot.loader.systemd-boot.configurationLimit = 100;
-  boot.loader.efi.canTouchEfiVariables = true;
-  
+  boot.loader = {
+    systemd-boot = {
+      enable = true;
+      memtest86.enable = true;
+      # Caps boot menu entries and what lands on the 1 GiB ESP. Unrelated to
+      # the store: this frees no /nix space and deletes no generations, it
+      # only stops the menu and /boot growing without bound.
+      configurationLimit = 100;
+    };
+    efi.canTouchEfiVariables = true;
+  };
+
   boot.blacklistedKernelModules = [ "nouveau" ];
-  boot.supportedFilesystems = [ "ntfs" "exfat" ];
+  boot.supportedFilesystems = [
+    "ntfs"
+    "exfat"
+  ];
 
   networking.hostName = "pc";
   networking.hosts = {
@@ -91,8 +121,10 @@ in
     openFirewall = true;
   };
 
-  hardware.bluetooth.enable = true;
-  hardware.bluetooth.powerOnBoot = true;
+  hardware.bluetooth = {
+    enable = true;
+    powerOnBoot = true;
+  };
 
   time.timeZone = "Europe/Berlin";
 
@@ -120,7 +152,12 @@ in
   users.users.kirill = {
     isNormalUser = true;
     description = "Kirill Menke";
-    extraGroups = [ "networkmanager" "wheel" "input" "docker" ];
+    extraGroups = [
+      "networkmanager"
+      "wheel"
+      "input"
+      "docker"
+    ];
     shell = pkgs.zsh;
   };
 
@@ -143,8 +180,8 @@ in
   ];
 
   environment.sessionVariables = {
-  	NIXOS_OZONE_WL = "1";
-  	CLAUDE_CODE_MAX_OUTPUT_TOKENS = "128000";
+    NIXOS_OZONE_WL = "1";
+    CLAUDE_CODE_MAX_OUTPUT_TOKENS = "128000";
   };
 
   environment.systemPackages = with pkgs; [
@@ -154,12 +191,12 @@ in
     gnutls
     libgcrypt
     openssl
-    
+
     # Thumbnail generation (used by system services)
     libheif
     ffmpeg-headless
     ffmpegthumbnailer
-    
+
     # iPhone/USB mounting support
     ntfs3g
     usbutils
@@ -175,7 +212,7 @@ in
   ];
 
   services.tumbler.enable = true;
-  
+
   # Jellyfin moved to the NAS (hosts/nas/media.nix) -- it is always on and the
   # library lives there now. Reach it at http://nas.local:8096.
   #
@@ -250,10 +287,10 @@ in
   hardware.nvidia = {
     modesetting.enable = true;
     powerManagement.enable = true;
-    nvidiaPersistenced = true;  # keep driver state loaded — avoids Pascal P-state hangs
-    open = false;  # Use proprietary drivers (GTX 1080Ti isn't supported by open drivers)
+    nvidiaPersistenced = true; # keep driver state loaded — avoids Pascal P-state hangs
+    open = false; # Use proprietary drivers (GTX 1080Ti isn't supported by open drivers)
     nvidiaSettings = true;
-    package = config.boot.kernelPackages.nvidiaPackages.legacy_580;  # GTX 1080 Ti (Pascal) — 595+ dropped support
+    package = config.boot.kernelPackages.nvidiaPackages.legacy_580; # GTX 1080 Ti (Pascal) — 595+ dropped support
   };
 
   # Enable opengl
@@ -266,7 +303,7 @@ in
     # older i965 fallback.
     extraPackages = with pkgs; [
       intel-media-driver
-      libva-utils          # `vainfo`, to check what the GPU can decode
+      libva-utils # `vainfo`, to check what the GPU can decode
       # OpenCL for the iGPU.  Jellyfin's HDR tonemapping filter needs it
       # (`-init_hw_device opencl=ocl:0.0`), and the only ICD present was
       # nvidia.icd for the removed card, so `clinfo` reported 0 platforms and
@@ -327,7 +364,11 @@ in
     description = "Log system health metrics for crash diagnostics";
     wantedBy = [ "multi-user.target" ];
     after = [ "nvidia-persistenced.service" ];
-    path = [ pkgs.coreutils pkgs.gawk config.hardware.nvidia.package.bin ];
+    path = [
+      pkgs.coreutils
+      pkgs.gawk
+      config.hardware.nvidia.package.bin
+    ];
     script = ''
       while true; do
         cpu=""; nvme=""
@@ -368,7 +409,7 @@ in
     "kernel.softlockup_panic" = 1;
     "kernel.hardlockup_panic" = 1;
     "kernel.panic" = 30;
-    "kernel.sysrq" = 1;  # allow Alt+SysRq (REISUB) as a softer escape than the power button
+    "kernel.sysrq" = 1; # allow Alt+SysRq (REISUB) as a softer escape than the power button
   };
 
   # Open Syncthing's sync (22000/tcp+udp) and local discovery (21027/udp) ports

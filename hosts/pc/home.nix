@@ -1,16 +1,32 @@
-{ inputs, config, pkgs, lib, ... }:
+{
+  inputs,
+  config,
+  pkgs,
+  lib,
+  ...
+}:
 
 let
   # Python interpreter with GTK + cairo bindings for the pomodoro popup.
-  pomodoroPython = pkgs.python3.withPackages (ps: [ ps.pygobject3 ps.pycairo ]);
+  pomodoroPython = pkgs.python3.withPackages (ps: [
+    ps.pygobject3
+    ps.pycairo
+  ]);
 
   # The catppuccin pomodoro popup, wrapped so it finds the GTK/layer-shell
   # GObject-Introspection typelibs at runtime.
   pomodoro-popup = pkgs.stdenv.mkDerivation {
     name = "pomodoro-popup";
-    src = ./dotfiles/waybar/scripts;
-    nativeBuildInputs = [ pkgs.wrapGAppsHook3 pkgs.gobject-introspection ];
-    buildInputs = [ pkgs.gtk3 pkgs.gtk-layer-shell pomodoroPython ];
+    src = ../../dotfiles/waybar/scripts;
+    nativeBuildInputs = [
+      pkgs.wrapGAppsHook3
+      pkgs.gobject-introspection
+    ];
+    buildInputs = [
+      pkgs.gtk3
+      pkgs.gtk-layer-shell
+      pomodoroPython
+    ];
     dontConfigure = true;
     dontBuild = true;
     installPhase = ''
@@ -24,7 +40,7 @@ let
 
   # Catppuccin GTK theme (Mocha, Blue accent) to match the rest of the system.
   # pkgs.catppuccin-gtk carries the build-args patch from the overlay in
-  # configuration.nix; we just pick the flavour/accent here.
+  # default.nix; we just pick the flavour/accent here.
   ctpFlavor = "mocha";
   ctpAccent = "blue";
   ctpGtkName = "catppuccin-${ctpFlavor}-${ctpAccent}-standard";
@@ -95,6 +111,53 @@ let
     @define-color secondary_sidebar_fg_color #cdd6f4;
   '';
 
+  # A file under ../../dotfiles installed as an executable script.
+  script = path: {
+    source = ../../dotfiles + "/${path}";
+    executable = true;
+  };
+
+  # Written by daily-wallpaper.sh (timer below), read by hyprpaper.
+  wallpaper = "${config.home.homeDirectory}/.cache/hypr/daily-wallpaper.jpg";
+
+  # `hypr-monitor get OUTPUT` prints the output's live mode as a rule string,
+  # `hypr-monitor set RULE` applies one.  RULE keeps the old `hyprctl keyword
+  # monitor` shape, "NAME,WxH@R,XxY,SCALE[,bitdepth,N][,cm,NAME]", which is
+  # also what `play` stores on disk for the restore.  The keyword went away
+  # with the Lua config; the replacement is hl.monitor() through `hyprctl
+  # eval`.  Unlike the keyword it *merges* into the output's existing rule, so
+  # bitdepth and cm are always spelled out -- restoring the desktop mode would
+  # otherwise keep the film's 10-bit HDR link.
+  hypr-monitor = pkgs.writeShellScriptBin "hypr-monitor" ''
+    HYPR=${pkgs.hyprland}/bin/hyprctl
+    case "''${1:-}" in
+      get)
+        $HYPR monitors -j 2>/dev/null | ${pkgs.jq}/bin/jq -r --arg m "$2" \
+          '.[]|select(.name==$m)|"\($m),\(.width)x\(.height)@\(.refreshRate),\(.x)x\(.y),\(.scale)"'
+        ;;
+      set)
+        IFS=,
+        set -- $2
+        [ $# -ge 4 ] || exit 0
+        lua="output=\"$1\",mode=\"$2\",position=\"$3\",scale=$4"
+        bitdepth=8 cm=srgb
+        shift 4
+        while [ $# -ge 2 ]; do
+          case "$1" in
+            bitdepth) bitdepth=$2 ;;
+            cm)       cm=$2 ;;
+          esac
+          shift 2
+        done
+        $HYPR eval "hl.monitor({$lua,bitdepth=$bitdepth,cm=\"$cm\"})" >/dev/null 2>&1 || true
+        ;;
+      *)
+        echo "usage: hypr-monitor get OUTPUT | set NAME,MODE,POS,SCALE[,bitdepth,N][,cm,NAME]" >&2
+        exit 64
+        ;;
+    esac
+  '';
+
   # Celluloid launcher that picks the audio path from whichever sink is
   # currently default: bitstream TrueHD/DTS-HD when the TV is selected,
   # ordinary PipeWire decoding otherwise (headphones, monitor, ...).
@@ -104,6 +167,7 @@ let
   # first, then start Celluloid; switching sinks later needs a restart.
   celluloid-auto = pkgs.writeShellScriptBin "celluloid-auto" ''
     MON=HDMI-A-2
+    HYPRMON=${hypr-monitor}/bin/hypr-monitor
 
     nick=$(${pkgs.wireplumber}/bin/wpctl inspect @DEFAULT_AUDIO_SINK@ 2>/dev/null \
            | sed -n 's/.*node\.nick = "\(.*\)"/\1/p')
@@ -117,37 +181,11 @@ let
     # Capture the current mode so it can be put back afterwards, rather than
     # hardcoding it or relying on `hyprctl reload` (the hyprland.lua rule for
     # this output asks for a mode the TV cannot do and silently falls back).
-    orig=$(${pkgs.hyprland}/bin/hyprctl monitors -j 2>/dev/null \
-           | ${pkgs.jq}/bin/jq -r --arg m "$MON" \
-             '.[]|select(.name==$m)|"\($m),\(.width)x\(.height)@\(.refreshRate),\(.x)x\(.y),\(.scale)"')
-
-    # `hyprctl keyword monitor` went away with the Lua config; the replacement
-    # is hl.monitor() through `hyprctl eval`.  Unlike the keyword it *merges*
-    # into the output's existing rule, so bitdepth and cm are always spelled
-    # out -- restoring the desktop mode would otherwise keep the film's 10-bit
-    # HDR link.  Takes the old "NAME,WxH@R,XxY,SCALE[,bitdepth,N][,cm,NAME]"
-    # string, which is also what gets saved for the restore.
-    set_monitor() {
-      local IFS=,
-      set -- $1
-      [ $# -ge 4 ] || return 0
-      local lua="output=\"$1\",mode=\"$2\",position=\"$3\",scale=$4"
-      local bitdepth=8 cm=srgb
-      shift 4
-      while [ $# -ge 2 ]; do
-        case "$1" in
-          bitdepth) bitdepth=$2 ;;
-          cm)       cm=$2 ;;
-        esac
-        shift 2
-      done
-      lua="$lua,bitdepth=$bitdepth,cm=\"$cm\""
-      ${pkgs.hyprland}/bin/hyprctl eval "hl.monitor({$lua})" >/dev/null 2>&1 || true
-    }
+    orig=$($HYPRMON get "$MON")
 
     restore() {
       if [ -n "$orig" ]; then
-        set_monitor "$orig"
+        $HYPRMON set "$orig"
       fi
     }
     trap restore EXIT INT TERM
@@ -157,7 +195,7 @@ let
       scale=$(printf '%s' "$orig" | cut -d, -f4)
       # bitdepth 10 gives an XRGB2101010 framebuffer, which is what an HDR
       # signal needs; the TV's EDID advertises PQ/HDR10 and HLG.
-      set_monitor "$MON,3840x2160@23.98,$pos,$scale,bitdepth,10"
+      $HYPRMON set "$MON,3840x2160@23.98,$pos,$scale,bitdepth,10"
       # Let the HDMI link re-negotiate before touching audio.
       sleep 3
     fi
@@ -197,9 +235,15 @@ let
     # systemd user service whose PATH is set for ffmpeg only, and without this
     # setsid/timeout/find/sed are all missing, so play exits instantly while
     # the launch still looks like it succeeded.
-    export PATH=${lib.makeBinPath [
-      pkgs.coreutils pkgs.util-linux pkgs.findutils pkgs.gnused pkgs.gawk
-    ]}:$PATH
+    export PATH=${
+      lib.makeBinPath [
+        pkgs.coreutils
+        pkgs.util-linux
+        pkgs.findutils
+        pkgs.gnused
+        pkgs.gawk
+      ]
+    }:$PATH
 
     MON=HDMI-A-2
     MPV=${pkgs.mpv}/bin/mpv
@@ -207,30 +251,7 @@ let
     JQ=${pkgs.jq}/bin/jq
     FFPROBE=${pkgs.ffmpeg}/bin/ffprobe
     SOCAT=${pkgs.socat}/bin/socat
-
-    # `hyprctl keyword monitor` went away with the Lua config; the replacement
-    # is hl.monitor() through `hyprctl eval`.  Unlike the keyword it *merges*
-    # into the output's existing rule, so bitdepth and cm are always spelled
-    # out -- restoring the desktop mode would otherwise keep the film's 10-bit
-    # HDR link.  Takes the old "NAME,WxH@R,XxY,SCALE[,bitdepth,N][,cm,NAME]"
-    # string, which is also what gets saved for the restore.
-    set_monitor() {
-      local IFS=,
-      set -- $1
-      [ $# -ge 4 ] || return 0
-      local lua="output=\"$1\",mode=\"$2\",position=\"$3\",scale=$4"
-      local bitdepth=8 cm=srgb
-      shift 4
-      while [ $# -ge 2 ]; do
-        case "$1" in
-          bitdepth) bitdepth=$2 ;;
-          cm)       cm=$2 ;;
-        esac
-        shift 2
-      done
-      lua="$lua,bitdepth=$bitdepth,cm=\"$cm\""
-      $HYPR eval "hl.monitor({$lua})" >/dev/null 2>&1 || true
-    }
+    HYPRMON=${hypr-monitor}/bin/hypr-monitor
 
     # Fixed path so mpv-remote (the phone remote) can find the running player.
     # Every mpv started here gets it, including the plain non-TV paths.
@@ -404,7 +425,7 @@ let
         # from a film, put the desktop mode back ourselves -- its wrapper was
         # told to skip its own restore.
         if [ -n "$inherited" ]; then
-          set_monitor "$inherited"
+          $HYPRMON set "$inherited"
         fi
         echo "$$" > "$PIDFILE"
         echo "$$" > "$MPVPIDFILE"
@@ -474,8 +495,7 @@ let
 
     orig="$inherited"
     if [ -z "$orig" ]; then
-      orig=$($HYPR monitors -j 2>/dev/null | $JQ -r --arg m "$MON" \
-             '.[]|select(.name==$m)|"\($m),\(.width)x\(.height)@\(.refreshRate),\(.x)x\(.y),\(.scale)"')
+      orig=$($HYPRMON get "$MON")
     fi
 
     echo "$$" > "$PIDFILE"
@@ -494,7 +514,7 @@ let
         rm -f "$PIDFILE" "$MPVPIDFILE" "$STATEFILE" "$ORIGFILE"
       fi
       if [ -n "$orig" ]; then
-        set_monitor "$orig"
+        $HYPRMON set "$orig"
       fi
     }
     trap restore EXIT INT TERM
@@ -508,7 +528,7 @@ let
       # HDR and looks washed out.
       extra=bitdepth,10
       [ "$hdr" = yes ] && extra=bitdepth,10,cm,hdr
-      set_monitor "$MON,$mode,$pos,$scale,$extra"
+      $HYPRMON set "$MON,$mode,$pos,$scale,$extra"
       # Let the new mode and scale settle before the window appears.
       sleep 5
     fi
@@ -590,20 +610,22 @@ let
   # the TV's own remote physically cannot reach it without a USB-CEC dongle.
   # W503 is the "line break before binary operator" rule, which contradicts
   # W504 and current PEP 8 guidance; E501 is long lines in the embedded HTML.
-  mpv-remote = pkgs.writers.writePython3Bin "mpv-remote"
-    { flakeIgnore = [ "E501" "E226" "W503" ]; }
-    (builtins.readFile ./dotfiles/mpv-remote/server.py);
+  mpv-remote = pkgs.writers.writePython3Bin "mpv-remote" {
+    flakeIgnore = [
+      "E501"
+      "E226"
+      "W503"
+    ];
+  } (builtins.readFile ../../dotfiles/mpv-remote/server.py);
 
   # `tv` -- drive the LG C4 over the network (webOS SSAP).  The TV cannot send
   # its remote's key presses to the PC (webOS exposes no such endpoint, and the
   # Magic Remote is 2.4 GHz RF straight to the TV), but this direction works,
   # so `play` can wake it and select the PC input by itself.
-  tv = pkgs.writers.writePython3Bin "tv"
-    {
-      libraries = [ pkgs.python3Packages.aiowebostv ];
-      flakeIgnore = [ "E501" ];
-    }
-    (builtins.readFile ./dotfiles/mpv-remote/tv.py);
+  tv = pkgs.writers.writePython3Bin "tv" {
+    libraries = [ pkgs.python3Packages.aiowebostv ];
+    flakeIgnore = [ "E501" ];
+  } (builtins.readFile ../../dotfiles/mpv-remote/tv.py);
 
   # Shadow the packaged Celluloid launcher so the normal app icon uses the
   # wrapper.  Derived from the upstream file with sed rather than rewritten by
@@ -626,7 +648,7 @@ in
   home.homeDirectory = "/home/kirill";
 
   # All packages without an equivalent home-manager module (yet)
-  home.packages = (with pkgs; [
+  home.packages = with pkgs; [
     # Development tools
     python3
     nodejs_22
@@ -647,20 +669,20 @@ in
     anki
     # spotify is installed by the spicetify-nix module (see programs.spicetify)
     x2goclient
-  
+
     # Media applications
     celluloid
-    celluloid-auto  # sink-aware Celluloid launcher, see the let block above
-    play            # smart movie launcher: matches mode, HDR and audio to the source
-    mpv-remote      # phone remote (systemd user service below)
-    tv              # LG TV network control (wake + input switching)
-    obs-studio    # screen recording (Wayland via PipeWire portal)
-    kdePackages.kdenlive  # video editing: keyframed zoom/pan post-production
-  
+    celluloid-auto # sink-aware Celluloid launcher, see the let block above
+    play # smart movie launcher: matches mode, HDR and audio to the source
+    mpv-remote # phone remote (systemd user service below)
+    tv # LG TV network control (wake + input switching)
+    obs-studio # screen recording (Wayland via PipeWire portal)
+    kdePackages.kdenlive # video editing: keyframed zoom/pan post-production
+
     # File management
     nautilus
     duf
- 
+
     # Utilities
     wget
     fzf
@@ -677,13 +699,13 @@ in
     appimage-run
     ydotool
     blueman
-    (lib.lowPrio sox)  # audio recording for Claude Code voice mode; lowPrio: its bin/play must lose to our play launcher
+    (lib.lowPrio sox) # audio recording for Claude Code voice mode; lowPrio: its bin/play must lose to our play launcher
     yt-dlp
     rclone
     rtorrent
     # Markdown in the terminal, both driven by the `md` function in programs.zsh
-    glow    # styled + paged rendering, no image support
-    mdcat   # inline images via kitty's graphics protocol, but only unpaged
+    glow # styled + paged rendering, no image support
+    mdcat # inline images via kitty's graphics protocol, but only unpaged
 
     # Waybar pomodoro timer popup
     pomodoro-popup
@@ -693,10 +715,10 @@ in
     catppuccin-cursors
     rose-pine-hyprcursor
     noto-fonts-color-emoji
-]) ++ [
-    # Custom flakes
-    pkgs.affinity-v3
-];
+
+    # From the affinity-nix overlay (default.nix)
+    affinity-v3
+  ];
 
   # GTK theming — Catppuccin Mocha (Blue accent).
   gtk = {
@@ -711,7 +733,12 @@ in
     };
     # Nautilus and other GTK4/libadwaita apps ignore gtk-theme-name; theme them
     # via libadwaita's named colors written into ~/.config/gtk-4.0/gtk.css.
-    gtk4.extraCss = ctpAdwCss;
+    # The theme itself is still named in gtk-4.0/settings.ini (home-manager's
+    # pre-26.05 default, kept explicit here).
+    gtk4 = {
+      theme = config.gtk.theme;
+      extraCss = ctpAdwCss;
+    };
   };
 
   # Tell libadwaita apps to use the dark variant.
@@ -720,7 +747,7 @@ in
   # Development Tools
   programs.claude-code = {
     enable = true;
-    package = inputs.nix-claude-code.packages.${pkgs.system}.latest;
+    package = inputs.nix-claude-code.packages.${pkgs.stdenv.hostPlatform.system}.latest;
   };
 
   programs.git = {
@@ -732,8 +759,6 @@ in
       pull.rebase = true;
       push.autoSetupRemote = true;
       pager.branch = false;
-    };
-    settings = {
       credential = {
         helper = "!AWS_PROFILE=research aws codecommit credential-helper $@";
         UseHttpPath = true;
@@ -765,7 +790,7 @@ in
   # Spotify + Spicetify (Catppuccin Mocha to match the rest of the system)
   programs.spicetify =
     let
-      spicePkgs = inputs.spicetify-nix.legacyPackages.${pkgs.stdenv.system};
+      spicePkgs = inputs.spicetify-nix.legacyPackages.${pkgs.stdenv.hostPlatform.system};
     in
     {
       enable = true;
@@ -781,53 +806,55 @@ in
   # Media Applications
   programs.zathura.enable = true;
   programs.imv.enable = true;
-  home.file.".config/imv/config".source = ./dotfiles/imv/config;
-  programs.mpv.enable = true;
-  # Global default: mpv ships with hwdec=no, so every video decoded on the CPU.
-  # On this file that was 34 CPU-seconds per 25s of playback versus 2.7 with
-  # VAAPI on the iGPU.  auto-safe falls back to software if a stream is
-  # unsupported, so it is safe as a blanket default.
-  # vaapi first: auto-safe alone tries hevc-vulkan first, which this iGPU
-  # cannot do (no VK_KHR_video_decode_queue) and which logs NAL parse errors
-  # before falling back.  auto-safe remains the fallback for other codecs.
-  programs.mpv.config.hwdec = "vaapi,auto-safe";
-  # English subtitles on by default.  mpv prefers the plain track over SDH /
-  # hearing-impaired variants of the same language, and subs-with-matching-audio
-  # defaults to yes, so they still show with an English audio track.
-  programs.mpv.config.slang = "en";
-  # Bitstream Dolby TrueHD/Atmos untouched to the LG TV -> HW-Q995GF soundbar,
-  # so the bar renders the Atmos objects onto its own speaker layout.
-  # Opt-in: plain `mpv` still decodes normally via PipeWire.  Use `mpv --profile=atmos`.
-  # Passthrough bypasses PipeWire and opens the ALSA device directly, so it
-  # fails if something else is already playing to the TV.
-  programs.mpv.profiles.atmos = {
-    profile-desc = "TrueHD/Atmos passthrough to the TV";
-    # eac3 is deliberately absent: it produced silence over this HDMI path,
-    # while truehd works.  dts-hd rides the same HBR path as truehd.
-    audio-spdif = "truehd,dts-hd";
-    # Name-resolved device, not hw:0,7 -- this Intel codec binds PCM devices to
-    # HDMI pins dynamically, so the raw number moves between reboots/replugs.
-    audio-device = "alsa/hdmi:CARD=PCH,DEV=1";
-    # libplacebo renderer: much better HDR tone mapping than the default, and
-    # it reads the Dolby Vision profile 8.1 RPU for dynamic per-scene metadata
-    # instead of only the static 1000-nit mastering value.
-    vo = "gpu-next";
-    # Advertise the HDR colorspace to the compositor so Hyprland's
-    # render:cm_auto_hdr can switch the output into HDR rather than
-    # tone-mapping down to SDR.  Needs render:cm_enabled = true.
-    target-colorspace-hint = "yes";
-    # Target the TV.  This is load-bearing for HDR: the compositor's colour
-    # feedback follows whichever output the surface sits on, so a window that
-    # lands on DP-1 drops back to gamma2.2 / 80 nits / Rec.709 even though
-    # everything else is correct.  Fullscreen is deliberately NOT set here --
-    # entering it kills HDR; `play` floats the window at output size instead.
-    #
-    # This profile is only the manual escape hatch (`mpv --profile=atmos`).
-    # `play` sets everything itself, per file, and does not use it.
-    screen-name = "HDMI-A-2";
-    fs-screen-name = "HDMI-A-2";
-    # No client-side decoration on the floating playback window.
-    border = "no";
+  xdg.configFile."imv/config".source = ../../dotfiles/imv/config;
+  programs.mpv = {
+    enable = true;
+    # Global default: mpv ships with hwdec=no, so every video decoded on the CPU.
+    # On this file that was 34 CPU-seconds per 25s of playback versus 2.7 with
+    # VAAPI on the iGPU.  auto-safe falls back to software if a stream is
+    # unsupported, so it is safe as a blanket default.
+    # vaapi first: auto-safe alone tries hevc-vulkan first, which this iGPU
+    # cannot do (no VK_KHR_video_decode_queue) and which logs NAL parse errors
+    # before falling back.  auto-safe remains the fallback for other codecs.
+    config.hwdec = "vaapi,auto-safe";
+    # English subtitles on by default.  mpv prefers the plain track over SDH /
+    # hearing-impaired variants of the same language, and subs-with-matching-audio
+    # defaults to yes, so they still show with an English audio track.
+    config.slang = "en";
+    # Bitstream Dolby TrueHD/Atmos untouched to the LG TV -> HW-Q995GF soundbar,
+    # so the bar renders the Atmos objects onto its own speaker layout.
+    # Opt-in: plain `mpv` still decodes normally via PipeWire.  Use `mpv --profile=atmos`.
+    # Passthrough bypasses PipeWire and opens the ALSA device directly, so it
+    # fails if something else is already playing to the TV.
+    profiles.atmos = {
+      profile-desc = "TrueHD/Atmos passthrough to the TV";
+      # eac3 is deliberately absent: it produced silence over this HDMI path,
+      # while truehd works.  dts-hd rides the same HBR path as truehd.
+      audio-spdif = "truehd,dts-hd";
+      # Name-resolved device, not hw:0,7 -- this Intel codec binds PCM devices to
+      # HDMI pins dynamically, so the raw number moves between reboots/replugs.
+      audio-device = "alsa/hdmi:CARD=PCH,DEV=1";
+      # libplacebo renderer: much better HDR tone mapping than the default, and
+      # it reads the Dolby Vision profile 8.1 RPU for dynamic per-scene metadata
+      # instead of only the static 1000-nit mastering value.
+      vo = "gpu-next";
+      # Advertise the HDR colorspace to the compositor so Hyprland's
+      # render:cm_auto_hdr can switch the output into HDR rather than
+      # tone-mapping down to SDR.  Needs render:cm_enabled = true.
+      target-colorspace-hint = "yes";
+      # Target the TV.  This is load-bearing for HDR: the compositor's colour
+      # feedback follows whichever output the surface sits on, so a window that
+      # lands on DP-1 drops back to gamma2.2 / 80 nits / Rec.709 even though
+      # everything else is correct.  Fullscreen is deliberately NOT set here --
+      # entering it kills HDR; `play` floats the window at output size instead.
+      #
+      # This profile is only the manual escape hatch (`mpv --profile=atmos`).
+      # `play` sets everything itself, per file, and does not use it.
+      screen-name = "HDMI-A-2";
+      fs-screen-name = "HDMI-A-2";
+      # No client-side decoration on the floating playback window.
+      border = "no";
+    };
   };
 
   # Phone remote, always up so the page is there whenever you pick up the
@@ -845,10 +872,16 @@ in
       # `play` without setsid/timeout/find/sed and it died on launch while still
       # reporting success.
       Environment = [
-        "PATH=${lib.makeBinPath [
-          pkgs.ffmpeg pkgs.curl pkgs.coreutils pkgs.util-linux pkgs.findutils
-          pkgs.gnused
-        ]}"
+        "PATH=${
+          lib.makeBinPath [
+            pkgs.ffmpeg
+            pkgs.curl
+            pkgs.coreutils
+            pkgs.util-linux
+            pkgs.findutils
+            pkgs.gnused
+          ]
+        }"
         "PLAY_BIN=${play}/bin/play"
         "TV_BIN=${tv}/bin/tv"
 
@@ -887,14 +920,14 @@ in
   # Make the normal "Celluloid" launcher entry use the sink-aware wrapper, so
   # opening a file from inside the app (Open > Open File) gets the right
   # audio path without any special command line.
-  home.file.".local/share/applications/io.github.celluloid_player.Celluloid.desktop".source =
+  xdg.dataFile."applications/io.github.celluloid_player.Celluloid.desktop".source =
     celluloid-auto-desktop;
 
   # Pin HDMI audio to the LG TV (HDMI-A-2).  Left alone, WirePlumber selects
   # `output:hdmi-stereo`, which is the GN07 DisplayPort monitor, and the TV
   # goes silent.  Applies whenever the stored profile is unavailable, e.g. if
   # the TV is off at boot.
-  home.file.".config/wireplumber/wireplumber.conf.d/51-hdmi-tv.conf".text = ''
+  xdg.configFile."wireplumber/wireplumber.conf.d/51-hdmi-tv.conf".text = ''
     device.profile.priority.rules = [
       {
         matches = [
@@ -942,58 +975,46 @@ in
 
   # Utilities
   programs.wofi.enable = true;
-  home.file.".config/wofi/style.css".source = ./dotfiles/wofi/style.css;
-  home.file.".config/wofi/chevron.svg".source = ./dotfiles/wofi/chevron.svg;
+  xdg.configFile."wofi/style.css".source = ../../dotfiles/wofi/style.css;
+  xdg.configFile."wofi/chevron.svg".source = ../../dotfiles/wofi/chevron.svg;
   programs.fastfetch.enable = true;
   programs.htop.enable = true;
   programs.btop.enable = true;
   programs.hyprshot.enable = true;
   services.swaync = {
     enable = true;
-    settings = builtins.fromJSON (builtins.readFile ./dotfiles/swaync/config.json);
-    style = builtins.readFile ./dotfiles/swaync/style.css;
+    settings = builtins.fromJSON (builtins.readFile ../../dotfiles/swaync/config.json);
+    style = builtins.readFile ../../dotfiles/swaync/style.css;
   };
   programs.aria2.enable = true;
   # Reuse waybar's Catppuccin palette for the @import in style.css
-  home.file.".config/swaync/mocha.css".source = ./dotfiles/waybar/mocha.css;
+  xdg.configFile."swaync/mocha.css".source = ../../dotfiles/waybar/mocha.css;
 
   services.udiskie.enable = true;
   services.hyprpaper = {
     enable = true;
     settings = {
       splash = false;
-      preload = [ "/home/kirill/.cache/hypr/daily-wallpaper.jpg" ];
+      preload = [ wallpaper ];
       wallpaper = [
         {
           monitor = "";
-          path = "/home/kirill/.cache/hypr/daily-wallpaper.jpg";
+          path = wallpaper;
         }
       ];
     };
   };
 
   # Daily wallpaper text overlay
-  home.file.".config/hypr/splashes.txt".source = ./dotfiles/hypr/splashes.txt;
-  home.file.".config/hypr/scripts/daily-wallpaper.sh" = {
-    source = ./dotfiles/hypr/scripts/daily-wallpaper.sh;
-    executable = true;
-  };
+  xdg.configFile."hypr/splashes.txt".source = ../../dotfiles/hypr/splashes.txt;
+  xdg.configFile."hypr/scripts/daily-wallpaper.sh" = script "hypr/scripts/daily-wallpaper.sh";
 
-  home.file.".config/hypr/scripts/power-menu.sh" = {
-    source = ./dotfiles/hypr/scripts/power-menu.sh;
-    executable = true;
-  };
+  xdg.configFile."hypr/scripts/power-menu.sh" = script "hypr/scripts/power-menu.sh";
 
   # Audio sink picker for the waybar audio module (left click).
-  home.file.".config/hypr/scripts/audio-sink-menu.sh" = {
-    source = ./dotfiles/hypr/scripts/audio-sink-menu.sh;
-    executable = true;
-  };
+  xdg.configFile."hypr/scripts/audio-sink-menu.sh" = script "hypr/scripts/audio-sink-menu.sh";
 
-  home.file.".config/hypr/scripts/dict-lookup.sh" = {
-    source = ./dotfiles/hypr/scripts/dict-lookup.sh;
-    executable = true;
-  };
+  xdg.configFile."hypr/scripts/dict-lookup.sh" = script "hypr/scripts/dict-lookup.sh";
 
   systemd.user.services.daily-wallpaper = {
     Unit.Description = "Generate daily wallpaper with text overlay";
@@ -1036,7 +1057,7 @@ in
       };
       folders = {
         "heidi" = {
-          path = "/home/kirill/Documents/heidenhain/heidi";
+          path = "${config.home.homeDirectory}/Documents/heidenhain/heidi";
           devices = [ "notebook" ];
           versioning = {
             type = "simple";
@@ -1049,50 +1070,32 @@ in
 
   programs.waybar.enable = true;
 
-  home.file.".config/waybar/config.jsonc".source = ./dotfiles/waybar/config.jsonc;
-  home.file.".config/waybar/mocha.css".source = ./dotfiles/waybar/mocha.css;
-  home.file.".config/waybar/style.css".source = ./dotfiles/waybar/style.css;
-  home.file.".config/waybar/scripts/gpu.sh" = {
-    source = ./dotfiles/waybar/scripts/gpu.sh;
-    executable = true;
-  };
-  home.file.".config/waybar/scripts/net-speed.sh" = {
-    source = ./dotfiles/waybar/scripts/net-speed.sh;
-    executable = true;
-  };
-  home.file.".config/waybar/scripts/network.sh" = {
-    source = ./dotfiles/waybar/scripts/network.sh;
-    executable = true;
-  };
-  home.file.".config/waybar/scripts/weather.sh" = {
-    source = ./dotfiles/waybar/scripts/weather.sh;
-    executable = true;
-  };
-  home.file.".config/waybar/scripts/pomodoro-status.sh" = {
-    source = ./dotfiles/waybar/scripts/pomodoro-status.sh;
-    executable = true;
-  };
-  home.file.".config/waybar/scripts/pomodoro-reset.sh" = {
-    source = ./dotfiles/waybar/scripts/pomodoro-reset.sh;
-    executable = true;
-  };
+  xdg.configFile."waybar/config.jsonc".source = ../../dotfiles/waybar/config.jsonc;
+  xdg.configFile."waybar/mocha.css".source = ../../dotfiles/waybar/mocha.css;
+  xdg.configFile."waybar/style.css".source = ../../dotfiles/waybar/style.css;
+  xdg.configFile."waybar/scripts/gpu.sh" = script "waybar/scripts/gpu.sh";
+  xdg.configFile."waybar/scripts/net-speed.sh" = script "waybar/scripts/net-speed.sh";
+  xdg.configFile."waybar/scripts/network.sh" = script "waybar/scripts/network.sh";
+  xdg.configFile."waybar/scripts/weather.sh" = script "waybar/scripts/weather.sh";
+  xdg.configFile."waybar/scripts/pomodoro-status.sh" = script "waybar/scripts/pomodoro-status.sh";
+  xdg.configFile."waybar/scripts/pomodoro-reset.sh" = script "waybar/scripts/pomodoro-reset.sh";
 
   programs.zsh = {
     enable = true;
     enableCompletion = true;
     autosuggestion.enable = true;
     syntaxHighlighting.enable = true;
-   
+
     history = {
       path = "${config.home.homeDirectory}/.histfile";
       size = 1000;
       save = 1000;
     };
-    
+
     initContent = ''
       # Completion styles
       zstyle ':completion:*' completer _complete _ignored
-      
+
       # Vi mode
       bindkey -v
 
@@ -1125,12 +1128,12 @@ in
         fi
       }
     '';
-    
+
     completionInit = ''
       autoload -Uz compinit
       compinit -d "$HOME/.cache/zsh/zcompdump-$ZSH_VERSION"
     '';
-    
+
     shellAliases = {
       ll = "ls -lah";
       la = "ls -a";
@@ -1160,7 +1163,10 @@ in
     oh-my-zsh = {
       enable = true;
       theme = "agnoster";
-      plugins = [ "sudo" "z" ];
+      plugins = [
+        "sudo"
+        "z"
+      ];
     };
   };
 
@@ -1193,7 +1199,7 @@ in
       nnoremap dd "_dd
     '';
   };
-  
+
   programs.awscli = {
     enable = true;
     # AWS config file is not managed by Home Manager to allow aws login to write credentials
@@ -1209,11 +1215,11 @@ in
     # the running session over needs `hyprctl reload full-reset` or a relogin;
     # a plain reload stays on whichever parser the compositor started with.
     configType = "lua";
-    extraConfig = builtins.readFile ./dotfiles/hypr/hyprland.lua;
+    extraConfig = builtins.readFile ../../dotfiles/hypr/hyprland.lua;
   };
 
-  home.file.".config/hypr/hyprlock.conf".source = ./dotfiles/hypr/hyprlock.conf;
-  home.file.".config/hypr/mocha.conf".source = ./dotfiles/hypr/mocha.conf;
+  xdg.configFile."hypr/hyprlock.conf".source = ../../dotfiles/hypr/hyprlock.conf;
+  xdg.configFile."hypr/mocha.conf".source = ../../dotfiles/hypr/mocha.conf;
 
   home.stateVersion = "24.11";
 
