@@ -727,6 +727,9 @@ in
     # GNOME screen reader of the same name, which is not installed here.
     # Updates come via `nix flake update llm-agents`, not the in-app updater.
     inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system}.orca
+    # Claude Desktop (community repackage of the Electron app; unofficial on
+    # Linux).  Prebuilt on cache.numtide.com like Orca.
+    inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system}.claude-desktop
     krita
     # 3D modelling/animation.  Upstream binaries rather than nixpkgs' blender:
     # the CUDA/OptiX kernels the 1080 Ti needs are only obtainable from source
