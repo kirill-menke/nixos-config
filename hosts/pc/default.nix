@@ -290,7 +290,10 @@ in
     nvidiaPersistenced = true; # keep driver state loaded — avoids Pascal P-state hangs
     open = false; # Use proprietary drivers (GTX 1080Ti isn't supported by open drivers)
     nvidiaSettings = true;
-    package = config.boot.kernelPackages.nvidiaPackages.legacy_580; # GTX 1080 Ti (Pascal) — 595+ dropped support
+    # GTX 1080 Ti (Pascal) — 595+ dropped support.
+    # The 2026-09 "1440p@60 only" cap was nvidia-pstated, not the driver
+    # version (see services.nvidia-pstated below) — no need to pin.
+    package = config.boot.kernelPackages.nvidiaPackages.legacy_580;
   };
 
   # Enable opengl
@@ -317,11 +320,14 @@ in
   # and NVIDIA removed PowerMizer modprobe options in driver 530+. nvidia-pstated
   # uses libnvidia-api.so to set P-state directly. Both low/high are P0 to avoid
   # transitions entirely (transitions are what cause the hangs).
-  # Left enabled even with the 1080 Ti pulled (2026-07-12, freeze diagnosis):
-  # the ExecCondition below skips it while no card is present, so nothing has
-  # to be flipped by hand when it goes back in.
+  # DISABLED 2026-09-26: forcing the P-state pinned the display clock low
+  # (P0 at idle-level clocks), so the driver dropped every mode above ~370 MHz
+  # pixel clock -- both panels capped at 1440p@60 on DP and HDMI -- and forced
+  # modes underflowed (flicker, half-screen garbage).  With the daemon stopped
+  # the GPU idles in P8 and offers 1440p@180/144 again.  The Pascal "P-state
+  # hangs" it was added for turned out to be the RAM/board freezes.
   services.nvidia-pstated = {
-    enable = true;
+    enable = false;
     performanceStateLow = 0;
     performanceStateHigh = 0;
   };

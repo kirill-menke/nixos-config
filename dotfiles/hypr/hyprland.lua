@@ -30,6 +30,10 @@ hl.monitor({ output = "DP-1", mode = "2560x1440@180", position = "0x0", scale = 
 -- a connector-name rule pinned to the TV's 1080p left the monitor off its
 -- native 1440p.  desc: rules match on a prefix and win over name rules.
 hl.monitor({ output = "desc:HKC OVERSEAS LIMITED 27E1Q", mode = "2560x1440@144", position = "2048x0", scale = 1.25 })
+-- Keyed by description so the mode follows the panel to whatever port it is
+-- on; desc rules beat the connector-name rules above.  (The 2026-09 cap to
+-- 1440p@60 on the 1080 Ti was nvidia-pstated pinning the display clock.)
+hl.monitor({ output = "desc:HKC OVERSEAS LIMITED GN07", mode = "2560x1440@180", position = "0x0", scale = 1.25 })
 -- Fallback for the TV (and anything else on that port): let Hyprland pick the
 -- EDID-preferred mode.  `play` overrides it to 4K/23.976 for movies anyway and
 -- restores whatever was active before playback.
