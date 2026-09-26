@@ -47,6 +47,25 @@ in
     "niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g="
   ];
 
+  # Passwordless sudo for just the commands Claude Code needs to rebuild and
+  # debug services unattended; everything else still asks for the password.
+  security.sudo.extraRules = [
+    {
+      users = [ "kirill" ];
+      commands =
+        map
+          (c: {
+            command = "/run/current-system/sw/bin/${c}";
+            options = [ "NOPASSWD" ];
+          })
+          [
+            "nixos-rebuild"
+            "systemctl"
+            "journalctl"
+          ];
+    }
+  ];
+
   # Generations are cheap individually -- they share almost every store path,
   # so the marginal cost of one is only what changed -- but they never expire
   # on their own. 290 of them had accumulated here, pinning ~57 GiB that was
