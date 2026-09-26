@@ -15,6 +15,11 @@ let
   # while the 1080 Ti is out and start by themselves when it returns.
   # Checking /dev/nvidia* would not work: /dev/nvidiactl exists regardless.
   nvidiaPresent = "${pkgs.bash}/bin/bash -c 'grep -qx 0x10de /sys/bus/pci/devices/*/vendor'";
+
+  # Wired LAN NIC (MAC 9c:6b:00:a3:38:bc).  Its name follows the PCI bus
+  # number, so it can change when PCIe cards are added or pulled -- it used to
+  # be enp3s0.  Check `ip -br link` if WoL fails again.
+  lanIf = "enp4s0";
 in
 {
   imports = [
@@ -459,7 +464,7 @@ in
   # so anyone who can reach the port can control playback.  (Interface-scoped
   # rather than `extraInputRules`, which is nftables-only and this host still
   # uses the iptables backend.)
-  networking.firewall.interfaces.enp3s0.allowedTCPPorts = [ 8322 ];
+  networking.firewall.interfaces.${lanIf}.allowedTCPPorts = [ 8322 ];
 
   # Wake-on-LAN on the wired NIC, so a suspended box can be brought back from
   # the phone before starting a film.  The PCI device had wakeup disabled, so
@@ -477,21 +482,21 @@ in
   # 0 and the cause stayed hidden.  Waking from the phone now needs a magic
   # packet to 9c:6b:00:a3:38:bc first.
   #
-  # NOT `networking.interfaces.enp3s0.wakeOnLan`: that writes a systemd .link
+  # NOT `networking.interfaces.<if>.wakeOnLan`: that writes a systemd .link
   # file, which NixOS only installs into /etc/systemd/network when
   # systemd-networkd is enabled.  This host runs NetworkManager, so the file was
   # never placed, udev went on applying 99-default.link, and the setting looked
   # applied while the NIC stayed wakeup-disabled.  Setting it with ethtool works
   # regardless of which network daemon is in charge.
-  systemd.services.wake-on-lan-enp3s0 = {
-    description = "Arm Wake-on-LAN on enp3s0";
+  systemd.services.wake-on-lan = {
+    description = "Arm Wake-on-LAN on ${lanIf}";
     wantedBy = [ "multi-user.target" ];
     after = [ "network.target" ];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
       ExecStart = pkgs.writeShellScript "arm-wol" ''
-        ${pkgs.ethtool}/bin/ethtool -s enp3s0 wol g
+        ${pkgs.ethtool}/bin/ethtool -s ${lanIf} wol g
       '';
     };
   };
@@ -499,7 +504,7 @@ in
   # Re-arm immediately before suspending: the setting only matters at that
   # moment, and NetworkManager reactivating the link can clear it in between.
   powerManagement.powerDownCommands = ''
-    ${pkgs.ethtool}/bin/ethtool -s enp3s0 wol g || true
+    ${pkgs.ethtool}/bin/ethtool -s ${lanIf} wol g || true
   '';
 
   # This value determines the NixOS release from which the default
