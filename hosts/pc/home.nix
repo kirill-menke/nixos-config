@@ -638,6 +638,67 @@ let
         ${pkgs.celluloid}/share/applications/io.github.celluloid_player.Celluloid.desktop \
         > $out
   '';
+
+  # `update [INPUT...]` -- bump the flake lock (all inputs, or just the named
+  # ones, e.g. `update llm-agents`), then dry-run the PC closure and show what
+  # the new lock would compile locally as opposed to fetch.  A nixpkgs bump
+  # is normally all-cache; anything of substance in the "built" list means an
+  # override or an unfree/uncached package has crept back in, and this is the
+  # moment to say no rather than after an hour of gcc.  Declining restores
+  # the previous flake.lock.  Glue derivations (etc, activate, units, the
+  # home-manager generation, ...) always rebuild and are filtered out.
+  nixos-update = pkgs.writeShellScriptBin "nixos-update" ''
+    set -eu
+    FLAKE=${config.home.homeDirectory}/.config/nixos
+    LOCK=$FLAKE/flake.lock
+    SAVED=$(mktemp)
+    trap 'rm -f "$SAVED"' EXIT
+    cp "$LOCK" "$SAVED"
+
+    if [ $# -gt 0 ]; then
+      nix flake update --flake "$FLAKE" "$@"
+    else
+      nix flake update --flake "$FLAKE"
+    fi
+    if cmp -s "$LOCK" "$SAVED"; then
+      echo "flake.lock unchanged -- nothing to do."
+      exit 0
+    fi
+
+    echo
+    echo "Dry-running the PC closure against the new lock ..."
+    plan=$(nix build --dry-run --no-link \
+      "$FLAKE#nixosConfigurations.pc.config.system.build.toplevel" 2>&1 >/dev/null \
+      | grep -vE '^(warning|evaluation warning)') || true
+    built=$(printf '%s\n' "$plan" \
+      | ${pkgs.gawk}/bin/awk '/will be built/{f=1;next} /will be fetched/{f=0} f' \
+      | sed -E 's#^ */nix/store/[a-z0-9]{32}-##; s/\.drv$//' \
+      | grep -vE '^(activate|etc|system-units|unit-.*|nixos-system-.*|home-manager-.*|hm[_-].*|user-environment)$' \
+      || true)
+    fetched=$(printf '%s\n' "$plan" | grep -oE 'will be fetched \([^)]*\)' || true)
+
+    if [ -n "$built" ]; then
+      echo
+      echo "These derivations would be COMPILED LOCALLY:"
+      printf '%s\n' "$built" | sed 's/^/    /'
+    else
+      echo "Nothing to compile locally; everything comes from a binary cache."
+    fi
+    [ -n "$fetched" ] && echo "$fetched"
+    echo
+
+    printf 'Switch to the new lock? [y/N] '
+    read -r answer
+    case "$answer" in
+      y|Y|yes) ;;
+      *)
+        cp "$SAVED" "$LOCK"
+        echo "Aborted; flake.lock restored."
+        exit 1
+        ;;
+    esac
+    sudo nixos-rebuild switch --flake "$FLAKE#pc"
+  '';
 in
 {
   imports = [
@@ -656,11 +717,22 @@ in
     opentofu
     jq
     gh
+    nixos-update
     # GUI Applications
     # bottles  # temporarily disabled due to openldap build failure on unstable
     google-chrome
     signal-desktop
+    # Orca IDE. Replaces the hand-installed ~/Applications/Orca.AppImage;
+    # provides `orca-ide` (GUI) and `orca` (CLI) -- the latter shadows the
+    # GNOME screen reader of the same name, which is not installed here.
+    # Updates come via `nix flake update llm-agents`, not the in-app updater.
+    inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system}.orca
     krita
+    # 3D modelling/animation.  Upstream binaries rather than nixpkgs' blender:
+    # the CUDA/OptiX kernels the 1080 Ti needs are only obtainable from source
+    # there (hours of compile on every nixpkgs bump, never cached).  See the
+    # header of blender-bin.nix; bump the version there.
+    (callPackage ./blender-bin.nix { })
     # Spaced repetition for the proficiency wiki; the deck TSV comes from
     # ~/Documents/wiki-build/export-anki.py.  The native package rather than
     # anki-bin: both are far past the 2.1.55 that the file's `#deck column:`
@@ -747,7 +819,7 @@ in
   # Development Tools
   programs.claude-code = {
     enable = true;
-    package = inputs.nix-claude-code.packages.${pkgs.stdenv.hostPlatform.system}.latest;
+    package = inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system}.claude-code;
   };
 
   programs.git = {
@@ -1157,7 +1229,9 @@ in
       # through kirill, whose passwordless sudo makes --use-remote-sudo
       # non-interactive.
       rebuild-nas = "nixos-rebuild switch --flake ~/.config/nixos#nas --target-host kirill@nas.local --use-remote-sudo";
-      update = "nix flake update --flake ~/.config/nixos && sudo nixos-rebuild switch --flake ~/.config/nixos#pc";
+      # Pre-flight in the let-block above: shows what a lock bump would compile
+      # locally and asks before switching.  `update llm-agents` bumps one input.
+      update = "nixos-update";
     };
 
     oh-my-zsh = {

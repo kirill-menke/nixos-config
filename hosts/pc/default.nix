@@ -40,6 +40,13 @@ in
     "flakes"
   ];
 
+  # Prebuilt Orca (and the rest of llm-agents.nix) so Electron never builds
+  # locally.
+  nix.settings.extra-substituters = [ "https://cache.numtide.com" ];
+  nix.settings.extra-trusted-public-keys = [
+    "niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g="
+  ];
+
   # Generations are cheap individually -- they share almost every store path,
   # so the marginal cost of one is only what changed -- but they never expire
   # on their own. 290 of them had accumulated here, pinning ~57 GiB that was
