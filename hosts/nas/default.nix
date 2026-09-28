@@ -28,6 +28,7 @@
     ./options.nix
     ./subtitles.nix
     ./tailscale.nix
+    ./vibereel-phone.nix
     ./vpn.nix
   ];
 
