@@ -36,6 +36,7 @@ let
   # appears on claude.ai/code.
   projects = [
     "auto-apply"
+    "kirifin"
     "kirill.es"
     "leetx-api"
     "polymarket"
@@ -43,6 +44,13 @@ let
   ];
 
   projectDir = p: "/home/kirill/projects/${p}";
+
+  # Session name -> working directory. "home" is a general-purpose session in
+  # ~kirill for system work on this box; it's kept out of the tmpfiles rules
+  # so they never touch the home directory's 0700 mode.
+  sessions = lib.genAttrs projects projectDir // {
+    home = "/home/kirill";
+  };
 in
 {
   # This host otherwise allows no unfree packages; scope the exception to
@@ -56,34 +64,32 @@ in
   ]
   ++ map (p: "d ${projectDir p} 0755 kirill users -") projects;
 
-  systemd.services = lib.listToAttrs (
-    map (p: {
-      name = "claude-remote-${p}";
-      value = {
-        description = "Claude Code Remote Control (${p})";
-        wantedBy = [ "multi-user.target" ];
-        after = [ "network-online.target" ];
-        wants = [ "network-online.target" ];
+  systemd.services = lib.mapAttrs' (p: dir: {
+    name = "claude-remote-${p}";
+    value = {
+      description = "Claude Code Remote Control (${p})";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
 
-        path = [ pkgs.git ];
+      path = [ pkgs.git ];
 
-        serviceConfig = {
-          User = "kirill";
-          WorkingDirectory = projectDir p;
-          Environment = "HOME=/home/kirill";
-          ExecStart =
-            "${pkgs.claude-code}/bin/claude remote-control"
-            + " --permission-mode bypassPermissions"
-            + " --name nas:${p}";
+      serviceConfig = {
+        User = "kirill";
+        WorkingDirectory = dir;
+        Environment = "HOME=/home/kirill";
+        ExecStart =
+          "${pkgs.claude-code}/bin/claude remote-control"
+          + " --permission-mode bypassPermissions"
+          + " --name nas:${p}";
 
-          # The server exits after ~10 minutes without network. Always come
-          # back and never give up: this box boots unattended after power
-          # loss, possibly long before the WAN does.
-          Restart = "always";
-          RestartSec = 30;
-        };
-        unitConfig.StartLimitIntervalSec = 0;
+        # The server exits after ~10 minutes without network. Always come
+        # back and never give up: this box boots unattended after power
+        # loss, possibly long before the WAN does.
+        Restart = "always";
+        RestartSec = 30;
       };
-    }) projects
-  );
+      unitConfig.StartLimitIntervalSec = 0;
+    };
+  }) sessions;
 }
