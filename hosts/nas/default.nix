@@ -27,6 +27,7 @@
     ./leetx.nix
     ./media.nix
     ./options.nix
+    ./reap-stalled.nix
     ./subtitles.nix
     ./tailscale.nix
     ./vibereel-phone.nix
