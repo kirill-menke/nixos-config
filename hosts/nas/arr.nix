@@ -47,10 +47,17 @@ in
   #
   # Group-writable by `users` for the same reason mediaRoot is: so you can
   # still reach into these by hand without sudo.
+  #
+  # setgid + qBittorrent's UMask 0002 (below) make every downloaded file
+  # qbittorrent:users 0664. That is what lets the import be a hardlink at all:
+  # with fs.protected_hardlinks=1 the kernel only lets Sonarr link a file it
+  # owns or can read AND write, and the old 0644 qbittorrent:qbittorrent files
+  # were neither -- measured 2026-09, every "hardlink" import silently fell
+  # back to a full copy.
   systemd.tmpfiles.rules = [
-    "d ${downloadRoot}             0775 qbittorrent users -"
-    "d ${downloadRoot}/incomplete  0775 qbittorrent users -"
-    "d ${downloadRoot}/complete    0775 qbittorrent users -"
+    "d ${downloadRoot}             2775 qbittorrent users -"
+    "d ${downloadRoot}/incomplete  2775 qbittorrent users -"
+    "d ${downloadRoot}/complete    2775 qbittorrent users -"
   ];
 
   #############################################################################
@@ -67,6 +74,25 @@ in
   users.users = lib.genAttrs [ "sonarr" "radarr" "qbittorrent" ] (_: {
     extraGroups = [ "users" ];
   });
+
+  # Group membership is not enough on its own: with the modules' default
+  # UMask 0022 every folder the *arrs create is 2755, and the jellyfin-run
+  # library jobs (subtitles.nix) cannot write their temp file beside the
+  # media. Measured 2026-09: strip-subtitles failed on all 67 *arr-imported
+  # files, every night, with "Permission denied". 0002 makes new folders 2775
+  # and files 664, which is the library's rule anyway.
+  systemd.services = lib.genAttrs [ "sonarr" "radarr" "qbittorrent" ] (_: {
+    serviceConfig.UMask = lib.mkForce "0002";
+  });
+
+  # Imported downloads are deleted, not kept. qBittorrent never seeds past
+  # completion (GlobalMaxSeedingMinutes = 0 below), so a finished torrent's
+  # files are dead weight once imported -- and strip-subtitles rewrites the
+  # library copy to a new inode anyway, which ends any hardlink sharing.
+  # Measured 2026-09: 943 GB sat in complete/, nearly all of it duplicates.
+  # The switch that does it is runtime state in each *arr's database, not
+  # here: Settings > Download Clients > qBittorrent > "Remove Completed" is ON
+  # in both Sonarr and Radarr (removeCompletedDownloads in the API).
 
   #############################################################################
   # Indexer manager

@@ -137,18 +137,28 @@ in
   # nobody here reads is the cheapest fix available; nothing is re-encoded.
 
   systemd.services.strip-subtitles = libraryJob {
-    description = "Remux new library files down to English and German subtitles";
+    description = "Remux new library files down to English and German subtitles, English audio first";
     exec = stripSubtitles;
 
     environment = [
       # ffprobe reports ISO 639-2/B; releases disagree about ger vs deu, and
       # a few tag with the two-letter code, so all the spellings are listed.
       "KEEP_LANGS=eng,en,ger,deu,de"
+      # Asked which titles are anime (Japanese audio first instead of English).
+      "SONARR_URL=http://127.0.0.1:8989"
+      "RADARR_URL=http://127.0.0.1:7878"
     ];
 
     # Remuxing 4K files is pure I/O, so it gets the lower priority of the two.
     timeout = "6h";
     nice = 15;
+
+    # The *arr API keys, straight from each app's config.xml -- the unit runs
+    # as jellyfin, which cannot read /var/lib/{sonarr,radarr} itself.
+    extraServiceConfig.LoadCredential = [
+      "sonarr.xml:/var/lib/sonarr/.config/NzbDrone/config.xml"
+      "radarr.xml:/var/lib/radarr/.config/Radarr/config.xml"
+    ];
   };
 
   #############################################################################
