@@ -20,6 +20,7 @@
     inputs.disko.nixosModules.disko
 
     ./adguard.nix
+    ./dns-fallback.nix
     ./arr.nix
     ./claude-code.nix
     ./disko.nix

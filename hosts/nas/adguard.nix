@@ -160,6 +160,15 @@ in
       # The default 90 days would just be a browsing-history archive.
       querylog.interval = "168h";
 
+      # dns-fallback.nix's watchdog asks for this name every 10 s to see that
+      # AdGuard is alive. A rule of our own answers it without any upstream;
+      # the log and statistics leave it out so they only show real clients.
+      user_rules = [ "||dns-watchdog.invalid^" ];
+      querylog.ignored = [ "dns-watchdog.invalid" ];
+      querylog.ignored_enabled = true;
+      statistics.ignored = [ "dns-watchdog.invalid" ];
+      statistics.ignored_enabled = true;
+
       # LAN DHCP, because the Vodafone Station cannot advertise a custom DNS
       # server (see header). Dynamic and UI-added static leases live in
       # leases.json in the state directory, so they survive restarts despite
@@ -196,9 +205,22 @@ in
   # resolution depend on adguardhome.service being up. Same rule as
   # wait-online and tailscale DNS: nothing on a headless box may hinge on one
   # daemon. Pin the host's own resolvers and ignore what DHCP offers.
+  #
+  # Order and timeout matter (measured 2026-09-28): plain-UDP Quad9 answered in
+  # 120-850 ms here and dropped ~1 in 15 queries, while 1.1.1.1 answered in
+  # ~20 ms with none lost. glibc waits 5 s per lost reply before trying the next
+  # server, and every lookup is an A + AAAA pair, so with Quad9 first the
+  # median getent took 5 s (17 of 20 over 1 s, worst 10 s) -- Sonarr/Radarr
+  # re-resolving their metadata APIs stalled VibeReel's first detail open for
+  # 5-10 s. Cloudflare first, Quad9 kept as the independent fallback, and a
+  # 1 s per-try timeout so a lost packet costs 1 s instead of 5.
   networking.nameservers = [
-    "9.9.9.9"
     "1.1.1.1"
+    "9.9.9.9"
+  ];
+  networking.resolvconf.extraOptions = [
+    "timeout:1"
+    "attempts:3"
   ];
   networking.dhcpcd.extraConfig = "nooption domain_name_servers";
 }
