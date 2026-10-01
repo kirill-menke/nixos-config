@@ -28,16 +28,31 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # Personal search/magnet/download API (Prowlarr + qBittorrent façade).
+    # VibeReel's backend (leetx-api, Prowlarr + qBittorrent façade), in the vibe-reel repo.
+    # path: to the subdirectory, not ?dir=, so the store copy skips the app's node_modules.
     # Its NixOS module builds the package against this flake's nixpkgs.
     leetx-api = {
-      url = "path:/home/kirill/Documents/projects/leetx-api";
+      url = "path:/home/kirill/Documents/projects/vibe-reel/backend";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
     # Network-namespace VPN confinement for the NAS: puts qBittorrent behind
     # ProtonVPN (see hosts/nas/vpn.nix). No nixpkgs input to follow.
     vpn-confinement.url = "github:Maroka-chan/VPN-Confinement";
+
+    # Kirifin, the self-hosted finance app (private repo). Local git checkout, so
+    # only committed files of the given branch are built.
+    # sops-nix: decrypts secrets/*.yaml on the host at activation (age via the
+    # SSH host key). Only encrypted files are in this repo.
+    sops-nix = {
+      url = "github:Mic92/sops-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    kirifin = {
+      url = "git+file:///home/kirill/Documents/projects/kirifin?ref=phase-1-2";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =

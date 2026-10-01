@@ -23,6 +23,7 @@
     ./arr.nix
     ./claude-code.nix
     ./disko.nix
+    ./finance.nix
     ./leetx.nix
     ./media.nix
     ./options.nix
