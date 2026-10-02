@@ -1,12 +1,12 @@
 #
 # VibeReel Phone -- the iPhone PWA build of the TV's Jellyfin client.
 #
-# One HTTPS origin on the tailnet, so the app, Jellyfin and leetx-api are
+# One HTTPS origin on the tailnet, so the app, Jellyfin and reel-api are
 # same-origin (no CORS, one service-worker scope, one certificate):
 #
 #   https://nas.<tailnet>.ts.net:9443/     -> the built PWA (nginx, below)
 #   https://nas.<tailnet>.ts.net:9443/jf/  -> Jellyfin   127.0.0.1:8096
-#   https://nas.<tailnet>.ts.net:9443/ml/  -> leetx-api  127.0.0.1:8790
+#   https://nas.<tailnet>.ts.net:9443/ml/  -> reel-api  127.0.0.1:8790
 #
 # tailscale serve strips the mount path before proxying, so Jellyfin sees
 # plain /Items/..., and its HLS playlists (relative segment URIs) resolve
@@ -119,7 +119,7 @@ in
   # Applied idempotently on every start; `off` on stop clears only this port,
   # leaving finance (443) and ntfy (8443) alone.
   systemd.services.vibereel-phone-tailscale-serve = {
-    description = "Publish VibeReel Phone (+ /jf Jellyfin, /ml leetx-api) on port ${toString httpsPort} via tailscale serve";
+    description = "Publish VibeReel Phone (+ /jf Jellyfin, /ml reel-api) on port ${toString httpsPort} via tailscale serve";
     after = [
       "tailscaled.service"
       "nginx.service"

@@ -25,7 +25,7 @@
     ./claude-code.nix
     ./disko.nix
     ./finance.nix
-    ./leetx.nix
+    ./reel-api.nix
     ./media.nix
     ./options.nix
     ./reap-stalled.nix

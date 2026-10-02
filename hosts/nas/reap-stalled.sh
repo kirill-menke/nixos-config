@@ -17,7 +17,7 @@
 # imported through the *arr's manual import, so a season pack missing one
 # episode still delivers the other nine.
 #
-# Only torrents an *arr queue is waiting on are ever touched: leetx-api's own
+# Only torrents an *arr queue is waiting on are ever touched: reel-api's own
 # grabs and anything added by hand are left alone.
 
 set -euo pipefail

@@ -38,7 +38,6 @@ let
     "auto-apply"
     "kirifin"
     "kirill.es"
-    "leetx-api"
     "polymarket"
     "vibe-reel"
   ];

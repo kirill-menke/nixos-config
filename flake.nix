@@ -28,10 +28,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # VibeReel's backend (leetx-api, Prowlarr + qBittorrent façade), in the vibe-reel repo.
+    # VibeReel's backend (reel-api, Sonarr/Radarr/Prowlarr/qBittorrent façade), in the vibe-reel repo.
     # path: to the subdirectory, not ?dir=, so the store copy skips the app's node_modules.
     # Its NixOS module builds the package against this flake's nixpkgs.
-    leetx-api = {
+    reel-api = {
       url = "path:/home/kirill/Documents/projects/vibe-reel/backend";
       inputs.nixpkgs.follows = "nixpkgs";
     };

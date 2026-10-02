@@ -281,23 +281,6 @@
         "url": "file:///home/kirill/Documents/projects/kirifin"
       }
     },
-    "leetx-api": {
-      "inputs": {
-        "nixpkgs": [
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1790872264,
-        "narHash": "sha256-rBXS7EpZwn83PCLwUzf3rZppDAxUbyoT+TVaJY5oIRA=",
-        "path": "/home/kirill/Documents/projects/vibe-reel/backend",
-        "type": "path"
-      },
-      "original": {
-        "path": "/home/kirill/Documents/projects/vibe-reel/backend",
-        "type": "path"
-      }
-    },
     "llm-agents": {
       "inputs": {
         "bun2nix": "bun2nix",
@@ -495,16 +478,33 @@
         "type": "github"
       }
     },
+    "reel-api": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1790973969,
+        "narHash": "sha256-rSr9HImg5ZTavEy3M7vMW7ukW+0NKjwzl2F6AIgZ1SI=",
+        "path": "/home/kirill/Documents/projects/vibe-reel/backend",
+        "type": "path"
+      },
+      "original": {
+        "path": "/home/kirill/Documents/projects/vibe-reel/backend",
+        "type": "path"
+      }
+    },
     "root": {
       "inputs": {
         "affinity-nix": "affinity-nix",
         "disko": "disko",
         "home-manager": "home-manager",
         "kirifin": "kirifin",
-        "leetx-api": "leetx-api",
         "llm-agents": "llm-agents",
         "nixpkgs": "nixpkgs_5",
         "nvidia-pstated": "nvidia-pstated",
+        "reel-api": "reel-api",
         "sops-nix": "sops-nix",
         "spicetify-nix": "spicetify-nix",
         "vpn-confinement": "vpn-confinement"

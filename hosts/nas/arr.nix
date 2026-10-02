@@ -159,7 +159,7 @@ in
       # GlobalMaxSeedingMinutes = 0 -> a torrent is paused the instant its
       # download verifies, so nothing uploads *after* completion. Paused, not
       # removed (MaxRatioAction defaults to 0 = pause), so the file stays put
-      # for Sonarr/Radarr to hardlink-import and for the leetx grabs to keep.
+      # for Sonarr/Radarr to hardlink-import and for reel-api's manual grabs to keep.
       #
       # Upload is left UNLIMITED (no GlobalUPSpeedLimit). A 1 KiB/s cap here was
       # measured to throttle DOWNLOADS ~100x: BitTorrent's choking algorithm
@@ -176,7 +176,7 @@ in
       # queuedDL. With IgnoreSlowTorrentsForQueueing, a torrent below
       # 200 KiB/s for 60 s stops counting toward the active limit, so
       # supply-starved swarms make room instead of parking the queue.
-      # Force-started torrents (leetx-api's stream-open priority signal)
+      # Force-started torrents (reel-api's stream-open priority signal)
       # bypass these limits entirely, so the episode being watched always
       # keeps its slot.
       BitTorrent.Session.MaxActiveDownloads = 5;
@@ -205,7 +205,7 @@ in
         # (see above).
         #
         # Since the VPN confinement (vpn.nix) nothing arrives over loopback:
-        # Sonarr, Radarr and leetx reach the WebUI at 192.168.15.1:8080 and
+        # Sonarr, Radarr and reel-api reach the WebUI at 192.168.15.1:8080 and
         # their connections enter the namespace from the veth bridge, so the
         # 192.168.15.0/24 entry is what covers them now (LocalHostAuth stays
         # off for a shell inside the netns). 100.64.0.0/10 is the tailnet,

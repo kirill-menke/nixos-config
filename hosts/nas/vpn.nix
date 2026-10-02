@@ -3,7 +3,7 @@
 #
 # Why a network namespace rather than a host-wide tunnel or per-uid policy
 # routing: qBittorrent is the ONLY thing that should exit via the VPN --
-# Jellyfin, the *arrs, AdGuard, Tailscale and leetx must keep using the real
+# Jellyfin, the *arrs, AdGuard, Tailscale and reel-api must keep using the real
 # uplink. Confining the one service to a netns whose only route out is the
 # WireGuard interface gets exactly that, and is a kill switch by construction:
 # if the tunnel is down there is no other route, so announces and peer traffic
@@ -13,7 +13,7 @@
 # What this deliberately does NOT hide: Prowlarr/FlareSolverr scraping the
 # indexer *website* still happens from the real IP. That is ordinary HTTPS,
 # not torrenting; confining Prowlarr too is possible later but means
-# repointing Sonarr/Radarr/leetx at a mapped Prowlarr address as well.
+# repointing Sonarr/Radarr/reel-api at a mapped Prowlarr address as well.
 #
 # The WireGuard config is a secret (it contains the private key) and follows
 # the same out-of-band pattern as the other secrets on this box. Generate it at
@@ -24,7 +24,7 @@
 #   install -m600 <downloaded>.conf /var/lib/nixos-secrets/protonvpn-wg.conf
 #
 # Without it the proton-* namespace units fail to start -- deliberate and
-# visible, same as leetx-api's environmentFile.
+# visible, same as reel-api's environmentFile.
 #
 # Inbound peers arrive via Proton's NAT-PMP (proton-natpmp below). Being
 # connectable matters here because the swarms this box actually leeches from
@@ -50,7 +50,7 @@
 
     # Non-connected subnets whose traffic into the namespace needs a return
     # route via the bridge: only the tailnet. Host-local processes (Sonarr,
-    # Radarr, leetx-api) talk to 192.168.15.1 over the veth's own connected
+    # Radarr, reel-api) talk to 192.168.15.1 over the veth's own connected
     # /24 and must NOT be listed -- the module turns every entry into
     # `ip route add <entry> via 192.168.15.5` inside the namespace, and the
     # veth /24 collides with the connected route ("RTNETLINK answers: File
