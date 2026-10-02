@@ -50,7 +50,7 @@
     };
 
     kirifin = {
-      url = "git+file:///home/kirill/Documents/projects/kirifin?ref=phase-1-2";
+      url = "git+file:///home/kirill/Documents/projects/kirifin?ref=main";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };

@@ -267,16 +267,16 @@
         "treefmt-nix": "treefmt-nix_2"
       },
       "locked": {
-        "lastModified": 1790873351,
-        "narHash": "sha256-IvMu5hMD7OX+dZGpz2Vc/Qszr8ol6ljCXvGgjA2nKgQ=",
-        "ref": "phase-1-2",
-        "rev": "aacdcfd2b9719c126a9cae00a310a28bc1e03ab8",
-        "revCount": 179,
+        "lastModified": 1790977799,
+        "narHash": "sha256-1Do3h0PNabf6KnBScS8FSvQu1305pJkiOevJImjARJY=",
+        "ref": "main",
+        "rev": "3ef4cd4ae98e0ed6009a00c55a4765a7338cf4f9",
+        "revCount": 365,
         "type": "git",
         "url": "file:///home/kirill/Documents/projects/kirifin"
       },
       "original": {
-        "ref": "phase-1-2",
+        "ref": "main",
         "type": "git",
         "url": "file:///home/kirill/Documents/projects/kirifin"
       }
