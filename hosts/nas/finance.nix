@@ -9,14 +9,12 @@
 {
   imports = [
     inputs.kirifin.nixosModules.default
-    inputs.sops-nix.nixosModules.sops
   ];
 
   # Secrets (ADR 0006, 0019, 0024): encrypted in secrets/finance.yaml, decrypted to
   # /run/secrets (tmpfs, root-only) and handed to the services via LoadCredential.
   sops = {
     defaultSopsFile = ../../secrets/finance.yaml;
-    age.sshKeyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ];
     secrets = {
       "finance/users".restartUnits = [ "finance.service" ];
       "finance/wrapping-key".restartUnits = [ "finance.service" ];

@@ -29,6 +29,7 @@
     ./media.nix
     ./options.nix
     ./reap-stalled.nix
+    ./secrets.nix
     ./subtitles.nix
     ./tailscale.nix
     ./vibereel-phone.nix
@@ -162,20 +163,21 @@
   # Console fallback if the network ever fails to come up and you attach a
   # monitor.
   #
-  # The hash lives in a file on the machine rather than inline here, because
-  # this repo is public. A sha-512 crypt hash is not a secret you can publish
-  # safely: at the default 5000 rounds it is cheap to attack offline on a GPU,
-  # and anything pushed to GitHub is scraped and cached permanently, so
-  # deleting it later does not undo the exposure.
+  # The hash comes from sops rather than inline here, because this repo is
+  # public. A sha-512 crypt hash is not a secret you can publish safely: at the
+  # default 5000 rounds it is cheap to attack offline on a GPU, and anything
+  # pushed to GitHub is scraped and cached permanently, so deleting it later
+  # does not undo the exposure.
   #
-  # Provision it out of band, once, on the NAS:
-  #
-  #   install -Dm600 /dev/stdin /var/lib/nixos-secrets/root.hash \
-  #     <<< "$(mkpasswd -m sha-512)"
-  #
-  # If the file is missing, root simply ends up with no valid password (login
-  # via console is refused); SSH key auth is unaffected either way.
-  users.users.root.hashedPasswordFile = "${config.nas.secretsDir}/root.hash";
+  # To change it: `mkpasswd -m sha-512`, then paste into nas/root-hash via
+  # `sops secrets/nas.yaml`. neededForUsers decrypts it to
+  # /run/secrets-for-users before users are created, which ordinary secrets
+  # are not. SSH key auth does not depend on it either way.
+  sops.secrets."nas/root-hash" = {
+    sopsFile = ../../secrets/nas.yaml;
+    neededForUsers = true;
+  };
+  users.users.root.hashedPasswordFile = config.sops.secrets."nas/root-hash".path;
 
   #############################################################################
   # Base tooling

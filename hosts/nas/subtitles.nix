@@ -20,7 +20,7 @@
 }:
 let
   inherit (config.nas) mediaRoot;
-  credsFile = "${config.nas.secretsDir}/opensubtitles.env";
+  credsFile = config.sops.secrets."nas/opensubtitles-env".path;
 
   fetchSubtitles = pkgs.writers.writePython3Bin "fetch-subtitles" { flakeIgnore = [ "E501" ]; } (
     builtins.readFile ./fetch-subtitles.py
@@ -120,8 +120,8 @@ in
     timeout = "30m";
     nice = 10;
 
-    # Credentials live on the machine, never in this repo -- it is public.
-    # Provision once (see the README block at the bottom of this file).
+    # Credentials come from sops, never plain in this repo -- it is public.
+    # See the Credentials block at the bottom of this file.
     extraServiceConfig.EnvironmentFile = credsFile;
   };
 
@@ -214,19 +214,17 @@ in
   # Credentials
   #############################################################################
   #
-  # Unmanaged state, like /var/lib/nixos-secrets/root.hash. Provision once:
+  # An env file in sops (nas/opensubtitles-env in secrets/nas.yaml):
   #
-  #   install -d -m700 /var/lib/nixos-secrets
-  #   cat > /var/lib/nixos-secrets/opensubtitles.env <<'EOF'
   #   OS_API_KEY=...
   #   OS_USER=...
   #   OS_PASS=...
   #   JELLYFIN_TOKEN=...
-  #   EOF
-  #   chmod 600 /var/lib/nixos-secrets/opensubtitles.env
-  #   chown jellyfin:users /var/lib/nixos-secrets/opensubtitles.env
   #
-  # Without it the unit fails to start; that is deliberate and visible rather
-  # than silently doing nothing. JELLYFIN_TOKEN is optional -- omit it and the
-  # fetch still works, it just will not trigger a library rescan afterwards.
+  # Root-owned is fine although the job runs as jellyfin: systemd reads
+  # EnvironmentFile as PID 1, before dropping privileges. Without it the unit
+  # fails to start; that is deliberate and visible rather than silently doing
+  # nothing. JELLYFIN_TOKEN is optional -- omit it and the fetch still works,
+  # it just will not trigger a library rescan afterwards.
+  sops.secrets."nas/opensubtitles-env".sopsFile = ../../secrets/nas.yaml;
 }
