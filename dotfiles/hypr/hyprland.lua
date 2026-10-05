@@ -232,6 +232,9 @@ hl.bind(mainMod .. " + L",      hl.dsp.exec_cmd("hyprlock"))
 hl.bind(mainMod .. " + Escape", hl.dsp.exec_cmd("~/.config/hypr/scripts/power-menu.sh"))
 hl.bind(mainMod .. " + N",      hl.dsp.exec_cmd("swaync-client -t -sw"))
 hl.bind(mainMod .. " + T",      hl.dsp.exec_cmd("~/.config/hypr/scripts/dict-lookup.sh"))
+-- Super+I is handled by the root iphone-hid service, which reads the keyboard
+-- directly; this no-op bind only keeps the key combo from reaching the app.
+hl.bind(mainMod .. " + I",      hl.dsp.exec_cmd("true"))
 hl.bind(mainMod .. " + P",      hl.dsp.window.pseudo())          -- dwindle
 hl.bind(mainMod .. " + J",      hl.dsp.layout("togglesplit"))    -- dwindle
 

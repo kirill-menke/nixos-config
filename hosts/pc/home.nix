@@ -742,6 +742,11 @@ in
     # import directive needs, and this one is 101MB unpacked against 650MB for
     # anki-bin's FHS environment.
     anki
+    # AirPlay receiver: mirrors the work iPhone (Control Center ->
+    # Bildschirmsynchronisierung).  Run as `uxplay -p` so it uses the fixed
+    # ports opened on the LAN interface in default.nix.  USB mirroring is not
+    # an option there -- the company MDM forbids host pairing and app installs.
+    uxplay
     # spotify is installed by the spicetify-nix module (see programs.spicetify)
     x2goclient
 
@@ -1222,6 +1227,12 @@ in
       # quote the magnet link (it contains &) e.g. magnet 'magnet:?xt=...'
       magnet = "aria2c --seed-time=0 --dir ~/Videos/Downloads";
       open = "xdg-open";
+      # AirPlay receiver for the work iPhone (Control Center ->
+      # Bildschirmsynchronisierung -> PC).  -p pins the ports the firewall
+      # opens; -nh keeps the name a plain "PC".  Detached with setsid so the
+      # terminal can be closed; any running instance is replaced first, since
+      # a second one could not bind the same ports.
+      iphone = "pkill -f '^uxplay '; setsid -f uxplay -p -n PC -nh >/dev/null 2>&1";
       # No alias for playback: `play` is a real binary on PATH, so it also works
       # from scripts, .desktop files and non-interactive shells.
       rebuild = "sudo nixos-rebuild switch --flake ~/.config/nixos#pc";

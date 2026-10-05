@@ -20,6 +20,22 @@ let
   # number, so it can change when PCIe cards are added or pulled -- it used to
   # be enp3s0.  Check `ip -br link` if WoL fails again.
   lanIf = "enp4s0";
+
+  # Super+I bridge: the PC's keyboard and mouse become a Bluetooth HID
+  # device for the work iPhone (see the docstring in the script).
+  iphone-hid = pkgs.writers.writePython3Bin "iphone-hid" {
+    libraries = with pkgs.python3Packages; [
+      evdev
+      dbus-fast
+    ];
+    # F821/F722: dbus-fast declares D-Bus signatures as string annotations
+    # ("o", "a{sv}"), which pyflakes mistakes for forward references.
+    flakeIgnore = [
+      "E501"
+      "F821"
+      "F722"
+    ];
+  } (builtins.readFile ../../dotfiles/iphone-hid/iphone-hid.py);
 in
 {
   imports = [
@@ -146,15 +162,57 @@ in
   #                  makes ssh/ping/curl able to resolve .local at all
   #   openFirewall - opens UDP/5353; without it the firewall drops the mDNS
   #                  replies, since multicast responses aren't ESTABLISHED
+  #   publish      - lets UxPlay register its AirPlay service through avahi's
+  #                  DNS-SD socket; without it the iPhone never sees the PC
   services.avahi = {
     enable = true;
     nssmdns4 = true;
     openFirewall = true;
+    publish = {
+      enable = true;
+      userServices = true;
+    };
   };
 
   hardware.bluetooth = {
     enable = true;
     powerOnBoot = true;
+    # For iphone-hid, which makes this adapter a keyboard+mouse:
+    #   input    - listens on the HID L2CAP PSMs 17/19 that iphone-hid needs.
+    #              Costs the PC the use of Bluetooth keyboards, mice and
+    #              gamepads; none are used here (both input devices are
+    #              2.4 GHz dongles, the only pairing is the Bose headphones).
+    #   hostname - would reset the device class to "desktop computer", and
+    #              iOS does not offer computers in its Bluetooth list.
+    disabledPlugins = [
+      "input"
+      "hostname"
+    ];
+    settings.General = {
+      Name = "PC";
+      # Major class peripheral, minor class keyboard+pointing combo.
+      Class = "0x0005C0";
+    };
+  };
+
+  systemd.services.iphone-hid = {
+    description = "PC keyboard and mouse as a Bluetooth HID device for the iPhone";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "bluetooth.service" ];
+    requires = [ "bluetooth.service" ];
+    # Restart with bluetoothd: its agent and SDP record die with it.
+    partOf = [ "bluetooth.service" ];
+    path = [
+      pkgs.util-linux # runuser, for desktop notifications
+      pkgs.libnotify
+    ];
+    environment.IPHONE_HID_USER = "kirill";
+    serviceConfig = {
+      ExecStart = "${iphone-hid}/bin/iphone-hid";
+      StateDirectory = "iphone-hid";
+      Restart = "on-failure";
+      RestartSec = 3;
+    };
   };
 
   time.timeZone = "Europe/Berlin";
@@ -464,7 +522,22 @@ in
   # so anyone who can reach the port can control playback.  (Interface-scoped
   # rather than `extraInputRules`, which is nftables-only and this host still
   # uses the iptables backend.)
-  networking.firewall.interfaces.${lanIf}.allowedTCPPorts = [ 8322 ];
+  #
+  # 7000/7001/7100 TCP + 6000/6001/7011 UDP: UxPlay AirPlay mirroring, which
+  # uses these fixed ports only when started with `-p` (default is random).
+  networking.firewall.interfaces.${lanIf} = {
+    allowedTCPPorts = [
+      8322
+      7000
+      7001
+      7100
+    ];
+    allowedUDPPorts = [
+      6000
+      6001
+      7011
+    ];
+  };
 
   # Wake-on-LAN on the wired NIC, so a suspended box can be brought back from
   # the phone before starting a film.  The PCI device had wakeup disabled, so
