@@ -44,6 +44,7 @@
         "interval": 1,
         "tooltip": true,
         "on-click": "pomodoro-popup",
+        "cursor": true, // hand pointer; undocumented AModule option
         "on-click-right": "~/.config/waybar/scripts/pomodoro-reset.sh"
     },
     "custom/power": {
@@ -57,10 +58,12 @@
         "format-icons": {
             "default": ["󰕿", "󰖀", "󰕾"]
         },
-        // Left click: pick the output sink. This is worth having on the
-        // primary click because `play` keys its whole behaviour (Atmos
-        // bitstreaming, 4K/HDR mode switch) off which sink is default.
-        "on-click": "~/.config/hypr/scripts/audio-sink-menu.sh",
+        // Left click: volume + output sink card (bar-popup.py). Picking the
+        // sink is worth the primary click because `play` keys its whole
+        // behaviour (Atmos bitstreaming, 4K/HDR mode switch) off which sink
+        // is default.
+        "on-click": "bar-popup sound",
+        "cursor": true,
         "on-click-right": "pavucontrol"
     },
     "hyprland/language": {
@@ -74,7 +77,9 @@
         "return-type": "json",
         "interval": 5,
         "tooltip": true,
-        "on-click": "cut -d'|' -f1 /tmp/waybar-network-public-ip | wl-copy"
+        "on-click": "bar-popup network",
+        "cursor": true,
+        "on-click-right": "cut -d'|' -f1 /tmp/waybar-network-public-ip | wl-copy"
     },
     "bluetooth": {
         "format": "󰂯 {status}",
@@ -83,7 +88,9 @@
         "tooltip-format": "{controller_alias}\t{controller_address}",
         "tooltip-format-connected": "{controller_alias}\t{controller_address}\n\n{device_enumerate}",
         "tooltip-format-enumerate-connected": "{device_alias}\t{device_address}",
-        "on-click": "blueman-manager"
+        "on-click": "bar-popup bluetooth",
+        "cursor": true,
+        "on-click-right": "blueman-manager"
     },
     "tray": {
         "icon-size": 18,

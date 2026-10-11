@@ -426,32 +426,14 @@ in
   systemd.services.nvidia-pstated.environment.LD_LIBRARY_PATH = "/run/opengl-driver/lib";
 
   # Every NVIDIA-dependent unit is gated on the card actually being in the
-  # machine, so pulling it does not leave services crash-looping (gpu-log hit
-  # 36 restarts in one boot while the 1080 Ti was out).  ExecCondition marks
+  # machine, so pulling it does not leave services crash-looping (the old
+  # gpu-log logger hit 36 restarts in one boot while the 1080 Ti was out).  ExecCondition marks
   # the unit *skipped* rather than failed, so `nixos-rebuild` also stays quiet.
   #
   # The check is the PCI vendor ID: /dev/nvidia* is not usable because
   # /dev/nvidiactl exists even with no card installed.
   systemd.services.nvidia-persistenced.serviceConfig.ExecCondition = nvidiaPresent;
   systemd.services.nvidia-pstated.serviceConfig.ExecCondition = nvidiaPresent;
-  systemd.services.gpu-log.serviceConfig.ExecCondition = nvidiaPresent;
-
-  systemd.services.gpu-log = {
-    description = "Log GPU metrics for crash diagnostics";
-    wantedBy = [ "multi-user.target" ];
-    # NOTE: "after graphical.target" created an ordering cycle with
-    # multi-user.target, so systemd silently deleted this unit at every boot.
-    after = [ "nvidia-persistenced.service" ];
-    wants = [ "nvidia-persistenced.service" ];
-    serviceConfig = {
-      Type = "simple";
-      ExecStart = "${pkgs.coreutils}/bin/stdbuf -oL ${config.hardware.nvidia.package.bin}/bin/nvidia-smi dmon -s pucvmet -o DT";
-      StandardOutput = "append:/var/log/gpu-log.txt";
-      StandardError = "journal";
-      Restart = "always";
-      RestartSec = 5;
-    };
-  };
 
   # Freeze diagnostics: log CPU/NVMe temps, RAM, load and GPU state to the
   # journal every 10s so the last samples before a hard freeze are on disk.

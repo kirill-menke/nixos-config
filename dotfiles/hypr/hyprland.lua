@@ -10,6 +10,8 @@
 hl.config({
     misc = {
         disable_splash_rendering = true,
+        -- Wake from DPMS off (`screens-off` alias) on any key press.
+        key_press_enables_dpms = true,
     },
 })
 
@@ -230,7 +232,8 @@ hl.bind(mainMod .. " + V",      hl.dsp.window.float({ action = "toggle" }))
 hl.bind(mainMod .. " + Space",  hl.dsp.exec_cmd(menu))
 hl.bind(mainMod .. " + L",      hl.dsp.exec_cmd("hyprlock"))
 hl.bind(mainMod .. " + Escape", hl.dsp.exec_cmd("~/.config/hypr/scripts/power-menu.sh"))
-hl.bind(mainMod .. " + N",      hl.dsp.exec_cmd("swaync-client -t -sw"))
+hl.bind(mainMod .. " + SHIFT + N", hl.dsp.exec_cmd("swaync-client -t -sw"))
+hl.bind(mainMod .. " + N",      hl.dsp.exec_cmd("~/.config/hypr/scripts/notes.sh"))
 hl.bind(mainMod .. " + T",      hl.dsp.exec_cmd("~/.config/hypr/scripts/dict-lookup.sh"))
 -- Super+I is handled by the root iphone-hid service, which reads the keyboard
 -- directly; this no-op bind only keeps the key combo from reaching the app.
@@ -330,6 +333,15 @@ hl.window_rule({ match = { class = "^(affinity.exe)$" }, tile = true })
 -- Dictionary lookup modal (SUPER+T); border matches the wofi launcher
 hl.window_rule({
     match        = { class = "^(dict-modal)$" },
+    border_color = "rgb(cba6f7)",
+    float        = true,
+    center       = true,
+    size         = { 1100, 620 },
+})
+
+-- Quick notes modal (SUPER+N), styled like the dictionary modal
+hl.window_rule({
+    match        = { class = "^(notes-modal)$" },
     border_color = "rgb(cba6f7)",
     float        = true,
     center       = true,

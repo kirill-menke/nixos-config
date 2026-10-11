@@ -7,16 +7,17 @@
 }:
 
 let
-  # Python interpreter with GTK + cairo bindings for the pomodoro popup.
-  pomodoroPython = pkgs.python3.withPackages (ps: [
+  # Python interpreter with GTK + cairo bindings for the waybar popups.
+  popupPython = pkgs.python3.withPackages (ps: [
     ps.pygobject3
     ps.pycairo
   ]);
 
-  # The catppuccin pomodoro popup, wrapped so it finds the GTK/layer-shell
-  # GObject-Introspection typelibs at runtime.
-  pomodoro-popup = pkgs.stdenv.mkDerivation {
-    name = "pomodoro-popup";
+  # The catppuccin waybar popups -- pomodoro-popup, and bar-popup for the
+  # network/bluetooth/sound modules -- wrapped so they find the
+  # GTK/layer-shell GObject-Introspection typelibs at runtime.
+  waybar-popups = pkgs.stdenv.mkDerivation {
+    name = "waybar-popups";
     src = ../../dotfiles/waybar/scripts;
     nativeBuildInputs = [
       pkgs.wrapGAppsHook3
@@ -25,15 +26,17 @@ let
     buildInputs = [
       pkgs.gtk3
       pkgs.gtk-layer-shell
-      pomodoroPython
+      popupPython
     ];
     dontConfigure = true;
     dontBuild = true;
     installPhase = ''
       runHook preInstall
       mkdir -p $out/bin
-      sed "1s|.*|#!${pomodoroPython}/bin/python3|" pomodoro-popup.py > $out/bin/pomodoro-popup
-      chmod +x $out/bin/pomodoro-popup
+      for name in pomodoro-popup bar-popup; do
+        sed "1s|.*|#!${popupPython}/bin/python3|" $name.py > $out/bin/$name
+        chmod +x $out/bin/$name
+      done
       runHook postInstall
     '';
   };
@@ -618,6 +621,12 @@ let
     ];
   } (builtins.readFile ../../dotfiles/mpv-remote/server.py);
 
+  # SUPER+N quick-notes modal (Textual TUI, launched in kitty by
+  # hypr/scripts/notes.sh); notes are kept in ~/Documents/notes.md.
+  notes-modal = pkgs.writers.writePython3Bin "notes-modal" {
+    libraries = [ pkgs.python3Packages.textual ];
+  } (builtins.readFile ../../dotfiles/hypr/scripts/notes.py);
+
   # `tv` -- drive the LG C4 over the network (webOS SSAP).  The TV cannot send
   # its remote's key presses to the PC (webOS exposes no such endpoint, and the
   # Magic Remote is 2.4 GHz RF straight to the TV), but this direction works,
@@ -756,6 +765,7 @@ in
     play # smart movie launcher: matches mode, HDR and audio to the source
     mpv-remote # phone remote (systemd user service below)
     tv # LG TV network control (wake + input switching)
+    notes-modal # SUPER+N quick notes, see the let block above
     obs-studio # screen recording (Wayland via PipeWire portal)
     kdePackages.kdenlive # video editing: keyframed zoom/pan post-production
 
@@ -787,8 +797,8 @@ in
     glow # styled + paged rendering, no image support
     mdcat # inline images via kitty's graphics protocol, but only unpaged
 
-    # Waybar pomodoro timer popup
-    pomodoro-popup
+    # Waybar popups: pomodoro timer, network/bluetooth/sound cards
+    waybar-popups
 
     # Themes/Appearance
     # catppuccin-gtk / catppuccin-papirus-folders are installed via the gtk block below
@@ -1091,10 +1101,8 @@ in
 
   xdg.configFile."hypr/scripts/power-menu.sh" = script "hypr/scripts/power-menu.sh";
 
-  # Audio sink picker for the waybar audio module (left click).
-  xdg.configFile."hypr/scripts/audio-sink-menu.sh" = script "hypr/scripts/audio-sink-menu.sh";
-
   xdg.configFile."hypr/scripts/dict-lookup.sh" = script "hypr/scripts/dict-lookup.sh";
+  xdg.configFile."hypr/scripts/notes.sh" = script "hypr/scripts/notes.sh";
 
   systemd.user.services.daily-wallpaper = {
     Unit.Description = "Generate daily wallpaper with text overlay";
@@ -1233,6 +1241,10 @@ in
       # terminal can be closed; any running instance is replaced first, since
       # a second one could not bind the same ports.
       iphone = "pkill -f '^uxplay '; setsid -f uxplay -p -n PC -nh >/dev/null 2>&1";
+      # Blank both monitors (DPMS off) until a key is pressed; mouse movement
+      # deliberately does not wake them (misc.key_press_enables_dpms in
+      # hyprland.lua). The sleep keeps the Enter release from waking them.
+      screens-off = "sleep 1 && hyprctl dispatch 'hl.dsp.dpms({ action = \"off\" })'";
       # No alias for playback: `play` is a real binary on PATH, so it also works
       # from scripts, .desktop files and non-interactive shells.
       rebuild = "sudo nixos-rebuild switch --flake ~/.config/nixos#pc";

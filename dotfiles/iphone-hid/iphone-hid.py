@@ -37,6 +37,12 @@ PSM_INTR = 0x13
 HOST_FILE = "/var/lib/iphone-hid/host"
 ADAPTER = "/org/bluez/hci0"
 USER = os.environ.get("IPHONE_HID_USER", "")
+# Keep-awake: while the phone is being mirrored and someone is using this
+# PC, nudge the pointer often enough to beat the MDM's 5-minute auto-lock.
+# Gated on PC activity so the phone still locks once nobody is here.
+NUDGE_EVERY = 120
+PRESENT_FOR = 180
+MIRROR_PORT = 7100  # uxplay -p: the screen-mirroring video stream
 # Coalesce mouse motion to ~125 Hz: a 1000 Hz mouse would otherwise queue
 # reports faster than the Bluetooth link drains them and the pointer lags.
 MOUSE_INTERVAL = 0.008
@@ -132,6 +138,22 @@ def log(msg):
     print(msg, flush=True)
 
 
+def mirroring():
+    """True while some peer has the uxplay mirror stream open."""
+    port = f":{MIRROR_PORT:04X} "
+    for table in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            with open(table) as f:
+                for line in f:
+                    fields = line.split()
+                    # fields[1] is local addr:port, fields[3] state (01 = ESTABLISHED)
+                    if (fields[1] + " ").endswith(port) and fields[3] == "01":
+                        return True
+        except OSError:
+            pass
+    return False
+
+
 class Agent(ServiceInterface):
     """Accept every pairing request without a code ("Just Works").
 
@@ -223,6 +245,8 @@ class Bridge:
         self.last_mouse = 0.0
         self.flush_handle = None
         self.props = None
+        self.last_input = 0.0
+        self.last_nudge = 0.0
 
     # -- notifications -----------------------------------------------------
 
@@ -297,7 +321,7 @@ class Bridge:
                 continue
             await self.attach(ctrl, intr, addr)
 
-    async def connect_out(self):
+    async def connect_out(self, quiet=False):
         try:
             with open(HOST_FILE) as f:
                 addr = f.read().strip()
@@ -315,6 +339,9 @@ class Bridge:
         except (OSError, asyncio.TimeoutError) as err:
             for s in socks:
                 s.close()
+            if quiet:
+                log(f"keep-awake reconnect failed: {err or 'timeout'}")
+                return
             self.notify(f"iPhone not reachable ({err or 'timeout'}): is it "
                         "unlocked with Bluetooth on?")
             return
@@ -395,6 +422,35 @@ class Bridge:
 
     # -- input devices -----------------------------------------------------
 
+    async def keep_awake(self):
+        while True:
+            await asyncio.sleep(30)
+            now = time.monotonic()
+            idle = now - self.last_input >= PRESENT_FOR
+            too_soon = now - self.last_nudge < NUDGE_EVERY
+            if self.mode != "pc" or idle or too_soon or not mirroring():
+                continue
+            # Also paces reconnect attempts when the phone is unreachable.
+            self.last_nudge = now
+            if not self.intr:
+                if self.connecting:
+                    continue
+                self.connecting = self.loop.create_task(
+                    self.connect_out(quiet=True))
+                try:
+                    await self.connecting
+                finally:
+                    self.connecting = None
+                if not self.intr:
+                    continue
+            # A lone Shift tap: it types nothing and triggers nothing, but
+            # resets iOS's idle timer.  A one-count pointer jiggle does not
+            # (tested: the phone locked 5 minutes after the last real input
+            # despite two of them).
+            self.send(b"\xa1\x01\x02" + bytes(7))
+            self.send(b"\xa1\x01" + bytes(8))
+            log("keep-awake nudge")
+
     async def scan_forever(self):
         while True:
             self.scan()
@@ -464,6 +520,7 @@ class Bridge:
             self.on_event(ev)
 
     def on_event(self, ev):
+        self.last_input = time.monotonic()
         if ev.type == e.EV_KEY:
             if ev.value == 2:
                 return  # autorepeat: iOS repeats held keys itself
@@ -575,6 +632,7 @@ async def main():
     bridge = Bridge(loop)
     await bridge.setup_bluez()
     loop.create_task(bridge.scan_forever())
+    loop.create_task(bridge.keep_awake())
     await bridge.serve()
 
 

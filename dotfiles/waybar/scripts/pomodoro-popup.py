@@ -312,7 +312,7 @@ class PomodoroApp(Gtk.Application):
         card_wrap = Gtk.EventBox()
         card_wrap.set_halign(Gtk.Align.END)
         card_wrap.set_valign(Gtk.Align.START)
-        card_wrap.set_margin_top(42)
+        card_wrap.set_margin_top(4)
         card_wrap.set_margin_end(40)
         card_wrap.connect("button-press-event", lambda *_: True)
         card_wrap.add(card)

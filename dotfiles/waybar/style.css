@@ -43,6 +43,22 @@
   margin: 5px 0;
 }
 
+/* Modules that open a popup card (bar-popup, pomodoro-popup): a soft
+   highlight fades in on hover; config.jsonc gives them a hand cursor. */
+#custom-network,
+#bluetooth,
+#pulseaudio,
+#custom-pomodoro {
+  transition: background-color 200ms ease-in-out;
+}
+
+#custom-network:hover,
+#bluetooth:hover,
+#pulseaudio:hover,
+#custom-pomodoro:hover {
+  background-color: @surface1;
+}
+
 /* Center hardware pill: the group box owns the background and corners,
    so a hidden member (e.g. GPU) never leaves a square edge */
 #hw {
