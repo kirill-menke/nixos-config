@@ -19,6 +19,19 @@
 #
 # Only torrents an *arr queue is waiting on are ever touched: reel-api's own
 # grabs and anything added by hand are left alone.
+#
+# It also makes one import Radarr refuses to make on its own. A finished
+# download whose name does not parse to the film -- "The Hunt (Jagten)
+# (2012) ...", the original title in brackets -- and that matched only by the
+# IMDb id an indexer attached, on an automatic search, sits at importBlocked
+# ("release was matched to movie by ID. Manual Import required.") forever:
+# Radarr re-checks it every minute and reaches the same verdict. The id is
+# all that ties such a download to the film, and an indexer can attach the
+# wrong one, so it is imported here only when every title in its name is a
+# known title of that film and the year agrees (the identity check), and
+# Radarr's manual import offers exactly one file for it with no objection
+# (that only says the file is importable). Anything less stays blocked for a
+# human.
 
 set -euo pipefail
 
@@ -50,10 +63,17 @@ arr() { # app method path [curl args...]
     -H 'Content-Type: application/json' "${url[$app]}/api/v3/$path" "$@"
 }
 
+# qBittorrent's API key goes in a header file in the unit's PrivateTmp rather
+# than on curl's command line: it is worth code execution as qbittorrent, and
+# argv is readable by every local user through /proc.
+qbit_auth=$(mktemp)
+trap 'rm -f "$qbit_auth"' EXIT
+printf 'Authorization: Bearer %s\n' "$(<"$CREDENTIALS_DIRECTORY/qbit-api-key")" >"$qbit_auth"
+
 qbit() { # path [curl args...]
   local path=$1
   shift
-  curl -fsS "$QBIT_URL/api/v2/$path" "$@"
+  curl -fsS -H "@$qbit_auth" "$QBIT_URL/api/v2/$path" "$@"
 }
 
 queue_ids() { # app hash -> JSON array of that download's queue record ids
@@ -61,11 +81,34 @@ queue_ids() { # app hash -> JSON array of that download's queue record ids
     jq -c --arg h "$2" '[.records[] | select((.downloadId // "" | ascii_downcase) == $h) | .id]'
 }
 
+# Wait for an import command. Copies of 4K files take minutes; allow an hour
+# before giving up.
+wait_command() { # app command-id
+  local app=$1 cmd=$2 status i
+  # Callers run with errexit off (inside if), so a failed POST arrives here
+  # as an empty id -- and GET command/ lists every command, which would poll
+  # for the full hour.
+  if [[ ! $cmd =~ ^[0-9]+$ ]]; then
+    log "  ! no import command was started"
+    return 1
+  fi
+  for ((i = 0; i < 360; i++)); do
+    status=$(arr "$app" GET "command/$cmd" | jq -r .status)
+    case $status in
+      completed) return 0 ;;
+      failed | aborted | cancelled | orphaned) break ;;
+    esac
+    sleep 10
+  done
+  log "  ! import command $cmd ended as '$status'"
+  return 1
+}
+
 # Import the files of a dead multi-file torrent that did finish. Returns
 # non-zero only if an import was attempted and did not complete, in which
 # case the caller must not delete the data.
 salvage() { # app hash torrent-json
-  local app=$1 h=$2 t=$3 files dir done_paths items payload cmd status i
+  local app=$1 h=$2 t=$3 files dir done_paths items payload cmd
   files=$(qbit "torrents/files?hash=$h")
   [[ $(jq length <<<"$files") -gt 1 ]] || return 0
 
@@ -102,17 +145,87 @@ salvage() { # app hash torrent-json
 
   log "  importing $(jq '.files | length' <<<"$payload") finished file(s) first"
   cmd=$(arr "$app" POST command --data "$payload" | jq -r .id)
-  # Copies of 4K files take minutes; allow an hour before giving up.
-  for ((i = 0; i < 360; i++)); do
-    status=$(arr "$app" GET "command/$cmd" | jq -r .status)
-    case $status in
-      completed) return 0 ;;
-      failed | aborted | cancelled | orphaned) break ;;
-    esac
-    sleep 10
-  done
-  log "  ! import command $cmd ended as '$status'"
-  return 1
+  wait_command "$app" "$cmd"
+}
+
+# One unreadable record (a film deleted mid-run, Radarr restarting) is
+# skipped rather than ending the run for the records after it.
+skip() { # name reason
+  log "radarr: $1 -- $2, skipped"
+}
+
+# Import a finished Radarr download blocked as "matched to movie by ID" (see
+# the top of this file) if every check agrees it is that film.
+unblock() { # queue-record-json
+  local r=$1 id h movie_id name movie ok items payload cmd
+  id=$(jq -r .downloadId <<<"$r")
+  h=${id,,}
+  movie_id=$(jq -r .movieId <<<"$r")
+  name=$(jq -r --arg h "$h" 'first(.[] | select(.hash == $h and .progress == 1) | .name) // empty' <<<"$torrents")
+  [[ -n $name ]] || return 0
+
+  # The title check Radarr skips for an id match. What its parser made of the
+  # name ("The Hunt (Jagten)") is split at brackets, quotes, slashes, " - "
+  # and " aka ", and every piece must be the film's title, original title or
+  # an alternate title, compared as lowercase letters and digits. Titles in
+  # other scripts are left out: stripped to ASCII, "Гладiатор" is "i".
+  # The one guess left open: a Latin translated title of this film that is
+  # also another film's title from the same year.
+  movie=$(arr radarr GET "movie/$movie_id") || { skip "$name" "film $movie_id unreadable"; return 0; }
+  ok=$(arr radarr GET parse -G --data-urlencode "title=$name" | jq --argjson m "$movie" '
+    def clean: ascii_downcase | gsub("[^a-z0-9]"; "");
+    def latin: test("^[\\p{Latin}\\p{N}\\p{P}\\p{S}\\p{Z}\\p{M}]*$");
+    [$m.title, $m.originalTitle, ($m.alternateTitles // [])[].title
+     | strings | select(latin) | clean | select(. != "")] as $known
+    | .parsedMovieInfo as $p
+    | [($p.movieTitles // [])[]
+       | splits("\\s+a\\.?k\\.?a\\.?\\s+|\\s+-\\s+|[()\\[\\]/\"]"; "i")
+       | clean | select(. != "")] as $pieces
+    | ($p.year // 0) > 1800 and ($p.year | IN($m.year, $m.secondaryYear))
+      and $pieces != [] and all($pieces[]; IN($known[]))') ||
+    { skip "$name" "parse failed"; return 0; }
+  if [[ $ok != true ]]; then
+    log "radarr: $name -- import blocked, left alone: its titles or year are not all $(jq -r '"\(.title) (\(.year))"' <<<"$movie")'s"
+    return 0
+  fi
+
+  # With the downloadId, Radarr records the import against the download, which
+  # clears the queue row and lets Remove Completed take the torrent away;
+  # without it the film would be imported and the row would stay blocked.
+  # "copy" is a hardlink on this box (copyUsingHardlinks). Deliberately
+  # strict: a sample outside a Sample/ folder makes two files and a human.
+  items=$(arr radarr GET manualimport -G --data-urlencode "downloadId=$id" \
+    --data-urlencode filterExistingFiles=true) || { skip "$name" "manual import preview failed"; return 0; }
+  payload=$(jq -c --arg id "$id" --argjson mid "$movie_id" '
+    if length == 1 and .[0].movie.id == $mid and ((.[0].rejections // []) | length == 0)
+    then {name: "ManualImport", importMode: "copy",
+          files: [.[0] | {path, folderName, movieId: .movie.id, quality, languages,
+                          releaseGroup, indexerFlags: (.indexerFlags // 0), downloadId: $id}]}
+    else empty end' <<<"$items")
+  if [[ -z $payload ]]; then
+    log "radarr: $name -- import blocked, left alone: manual import offers $(jq length <<<"$items") file(s), not one clean one$(
+      jq -r '[.[].rejections[]?.reason] | unique | if length > 0 then " (" + join("; ") + ")" else "" end' <<<"$items")"
+    return 0
+  fi
+
+  log "radarr: $name -- import blocked (matched by ID only), importing"
+  if [[ -n $DRY_RUN ]]; then
+    unblocked=$((unblocked + 1))
+    return 0
+  fi
+  cmd=$(arr radarr POST command --data "$payload" | jq -r .id) || { skip "$name" "import command refused"; return 0; }
+  wait_command radarr "$cmd" || return 0
+  # A completed command only means Radarr tried: a failed copy is reported
+  # inside it, not as a failed command. The import is recorded in the film's
+  # history under the download's id.
+  if arr radarr GET "history/movie?movieId=$movie_id" | jq -e --arg h "$h" '
+       any(.[]; .eventType == "downloadFolderImported"
+                and (.downloadId // "" | ascii_downcase) == $h)' >/dev/null; then
+    unblocked=$((unblocked + 1))
+    log "  imported"
+  else
+    log "  ! import command finished, but Radarr's history shows no import"
+  fi
 }
 
 remove() { # app hash
@@ -179,4 +292,17 @@ for app in sonarr radarr; do
   done
 done
 
-log "done: $reaped dead download(s)${DRY_RUN:+ (dry run)}"
+# Radarr only: Sonarr matches a release by its title first and the id only
+# as a fallback, and none of its grabs here has ever matched by id.
+unblocked=0
+mapfile -t blocked < <(arr radarr GET 'queue?pageSize=1000' | jq -c '
+  [.records[] | select(.trackedDownloadState == "importBlocked"
+                       and .downloadId != null and .movieId != null
+                       and any(.statusMessages[]?.messages[]?; test("matched to movie by ID")))
+   | {downloadId, movieId}]
+  | unique_by(.downloadId)[]')
+for r in "${blocked[@]}"; do
+  unblock "$r"
+done
+
+log "done: $reaped dead download(s), $unblocked blocked import(s) cleared${DRY_RUN:+ (dry run)}"

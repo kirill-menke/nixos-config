@@ -25,6 +25,7 @@
     ./claude-code.nix
     ./disko.nix
     ./finance.nix
+    ./kirill-es.nix
     ./reel-api.nix
     ./media.nix
     ./options.nix
@@ -32,7 +33,9 @@
     ./subtitles.nix
     ./tailscale.nix
     ./vibereel-phone.nix
+    ./vibereel-web.nix
     ./vpn.nix
+    ./wake-pc.nix
   ];
 
   #############################################################################

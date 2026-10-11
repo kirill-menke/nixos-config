@@ -7,13 +7,19 @@
 // alternative is that the only copy of a security-relevant rule set lives in
 // a browser text box with no history and no review.
 //
+// This repo is public, so the file names no tailnet address or account: the
+// owner is autogroup:owner, and the NAS address is the @NAS_TAILNET_IP@
+// placeholder, filled in from the node itself at apply time.
+//
 // Apply after editing (needs an access token from the admin console,
 // Settings -> Keys; treat it like a password and revoke when done):
 //
+//   sed "s/@NAS_TAILNET_IP@/$(ssh kirill@nas.local tailscale ip -4)/" \
+//     hosts/nas/tailscale-policy.hujson |
 //   curl -sS -X POST \
 //     -H "Authorization: Bearer $TS_API_TOKEN" \
 //     -H "Content-Type: application/hujson" \
-//     --data-binary @hosts/nas/tailscale-policy.hujson \
+//     --data-binary @- \
 //     https://api.tailscale.com/api/v2/tailnet/-/acl
 //
 // Swap the path for .../acl/validate to check it without applying. Verify
@@ -23,8 +29,8 @@
 //
 // Why the shared-user rule exists at all: hosts/nas/tailscale.nix trusts
 // tailscale0 wholesale, so the host firewall opens every port to anyone on
-// the tailnet -- including sshd on 22 and, worse, the AdGuard UI on 3000,
-// which has no login and controls DNS for the whole LAN. That is fine for
+// the tailnet -- including sshd on 22 and the AdGuard UI on 3000 (tailscale
+// serve; it has a login, but controls DNS for the whole LAN). That is fine for
 // devices this account owns and completely wrong for an external user who
 // accepted a Jellyfin share. The default policy is a single allow-all grant,
 // under which a shared guest gets all of it; policies are a union of allows
@@ -32,14 +38,15 @@
 // autogroup:member, not merely supplemented.
 {
 	"hosts": {
-		"nas": "100.73.68.105",
+		"nas": "@NAS_TAILNET_IP@",
 	},
 
 	"grants": [
-		// This account: unrestricted. Named explicitly rather than via
+		// This account: unrestricted. autogroup:owner rather than
 		// autogroup:member, because guests invited through Users -> Invite
-		// external users become members too and would inherit the whole box.
-		{"src": ["kirill.menke@outlook.de"], "dst": ["*"], "ip": ["*"]},
+		// external users become members too and would inherit the whole box;
+		// an invite never makes anyone the tailnet owner.
+		{"src": ["autogroup:owner"], "dst": ["*"], "ip": ["*"]},
 
 		// Everyone else on the tailnet: Jellyfin and nothing else. Guests
 		// arrive through two different doors -- a user invite makes them a
@@ -53,7 +60,7 @@
 		// Note this is deliberately not "members get everything, guests get
 		// less" -- membership here is a login, not a trust level. Anyone
 		// admitted should reach 8096 and nothing else; only the account above
-		// is trusted with sshd on 22 and the passwordless AdGuard UI on 3000.
+		// is trusted with sshd on 22 and the AdGuard UI on 3000.
 		{"src": ["autogroup:member"], "dst": ["nas"], "ip": ["tcp:8096"]},
 		{"src": ["autogroup:shared"], "dst": ["nas"], "ip": ["tcp:8096"]},
 	],

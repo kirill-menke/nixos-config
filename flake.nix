@@ -49,6 +49,25 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    # microVM host module (microvm.nixosModules.host), for the kirill.es guests.
+    microvm = {
+      url = "github:microvm-nix/microvm.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    # kirill.es (private repo): the local checkout, committed files of one
+    # branch only, never the working tree with its .env files. One input per
+    # VM: prod tracks master, dev.kirill.es tracks dev (hosts/nas/kirill-es.nix).
+    # Deploy: `nix flake update kirill-es` (or kirill-es-dev), then rebuild.
+    kirill-es = {
+      url = "git+file:///home/kirill/Documents/projects/kirill.es?ref=master";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    kirill-es-dev = {
+      url = "git+file:///home/kirill/Documents/projects/kirill.es?ref=dev";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     kirifin = {
       url = "git+file:///home/kirill/Documents/projects/kirifin?ref=main";
       inputs.nixpkgs.follows = "nixpkgs";

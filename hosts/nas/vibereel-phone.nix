@@ -71,6 +71,16 @@ let
     '';
   };
 
+  # reel-api refuses Host names that aren't this box (its DNS-rebinding
+  # guard), so it must see the name the browser used, not nginx's upstream
+  # 127.0.0.1. Auth is reel-api's own (a Jellyfin token per request): this
+  # proxy adds nothing to a request, so it opens nothing the LAN port didn't.
+  mlProxy = proxy 8790 // {
+    extraConfig = (proxy 8790).extraConfig + ''
+      proxy_set_header Host $host;
+    '';
+  };
+
   serve = "${pkgs.tailscale}/bin/tailscale serve";
 in
 {
@@ -109,7 +119,7 @@ in
       root = "${root}/current";
       locations = staticLocations // {
         "/jf/" = proxy 8096;
-        "/ml/" = proxy 8790;
+        "/ml/" = mlProxy;
       };
     };
   };

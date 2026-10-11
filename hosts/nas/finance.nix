@@ -1,11 +1,20 @@
 #
 # Kirifin (finance app) -- DEMO deploy with synthetic data.
 #
-# NOT FOR COMMIT as is: `hostname` contains the tailnet name. Before committing,
-# publish via the Tailscale Service svc:ledger and replace the hostname (see kirifin
-# docs/runbooks/first-deploy.md). Secrets come from sops (secrets/finance.yaml).
+# Secrets come from sops (secrets/finance.yaml). So does the app's hostname: a MagicDNS
+# name contains the tailnet name (<node>.<tailnet>.ts.net), which this public repo must
+# never hold in plain text. That stays true after the move to the Tailscale Service
+# svc:ledger (kirifin docs/runbooks/first-deploy.md): ledger.<tailnet>.ts.net names the
+# tailnet too, so only the sops value changes then. The Nix store only ever sees a
+# placeholder; both services get the real name from an EnvironmentFile rendered by sops.
 #
 { config, inputs, pkgs, ... }:
+let
+  # Overridden at runtime by FINANCE_HOSTNAME / NTFY_BASE_URL (env beats the config
+  # file in both apps). `.invalid` never resolves, so a missing override fails closed.
+  placeholderHost = "hostname-from-sops.invalid";
+  hostname = config.sops.placeholder."finance/hostname";
+in
 {
   imports = [
     inputs.kirifin.nixosModules.default
@@ -23,12 +32,24 @@
       "finance/ntfy-token".restartUnits = [ "finance.service" ];
       "finance/ntfy-host-token" = { };
       "finance/fints-product-id".restartUnits = [ "finance.service" ];
+      # This node's MagicDNS name, bare (nas.<tailnet>.ts.net). Not a secret, but personal.
+      "finance/hostname" = { };
+    };
+    templates = {
+      "finance-hostname.env" = {
+        content = "FINANCE_HOSTNAME=${hostname}\n";
+        restartUnits = [ "finance.service" ];
+      };
+      "ntfy-base-url.env" = {
+        content = "NTFY_BASE_URL=https://${hostname}:8443\n";
+        restartUnits = [ "ntfy-sh.service" ];
+      };
     };
   };
 
   services.finance = {
     enable = true;
-    hostname = "nas.taila639ad.ts.net";
+    hostname = placeholderHost; # real value: FINANCE_HOSTNAME, see below
     dataDir = "/var/lib/finance"; # mountpoint of tank/finance (encrypted, copies=2)
     zfsDataset = "tank/finance";
     usersFile = config.sops.secrets."finance/users".path;
@@ -40,6 +61,10 @@
     hostAlerts.tokenFile = config.sops.secrets."finance/ntfy-host-token".path;
     fints.productIdFile = config.sops.secrets."finance/fints-product-id".path;
   };
+  # Read by PID 1 before the sandbox applies; no "-" prefix, so a missing file stops the
+  # start instead of running with the placeholder.
+  systemd.services.finance.serviceConfig.EnvironmentFile =
+    config.sops.templates."finance-hostname.env".path;
   services.zfs.autoScrub = {
     enable = true;
     interval = "monthly";
@@ -50,8 +75,10 @@
   # relays "new message" pokes for iOS push (metadata, no message text).
   services.ntfy-sh = {
     enable = true;
+    # iOS push hashes base-url into the poll topic, so it must be the exact URL the phone uses.
+    environmentFile = config.sops.templates."ntfy-base-url.env".path;
     settings = {
-      base-url = "https://${config.services.finance.hostname}:8443";
+      base-url = "https://${placeholderHost}:8443"; # real value: NTFY_BASE_URL
       listen-http = "";
       listen-unix = "/run/ntfy-sh/ntfy.sock";
       listen-unix-mode = 432; # 0660: group ntfy-sh (finance) may publish

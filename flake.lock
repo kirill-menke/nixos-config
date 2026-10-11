@@ -267,11 +267,11 @@
         "treefmt-nix": "treefmt-nix_2"
       },
       "locked": {
-        "lastModified": 1790977799,
-        "narHash": "sha256-1Do3h0PNabf6KnBScS8FSvQu1305pJkiOevJImjARJY=",
+        "lastModified": 1791643350,
+        "narHash": "sha256-PcQIzxcdlEuaI37i+Wsu7YlpGx44vasNgsYdc0VnI+c=",
         "ref": "main",
-        "rev": "3ef4cd4ae98e0ed6009a00c55a4765a7338cf4f9",
-        "revCount": 365,
+        "rev": "34ef2e6fb80e6813e118d801372f3a52552c91f0",
+        "revCount": 488,
         "type": "git",
         "url": "file:///home/kirill/Documents/projects/kirifin"
       },
@@ -279,6 +279,48 @@
         "ref": "main",
         "type": "git",
         "url": "file:///home/kirill/Documents/projects/kirifin"
+      }
+    },
+    "kirill-es": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1791316020,
+        "narHash": "sha256-I4F/jTRaLuUBgcnimuthupMA3+8fg6YG0Px7fdI7AP4=",
+        "ref": "master",
+        "rev": "326c9bd294107bc0fd0968216ee3bfeac4bf1299",
+        "revCount": 99,
+        "type": "git",
+        "url": "file:///home/kirill/Documents/projects/kirill.es"
+      },
+      "original": {
+        "ref": "master",
+        "type": "git",
+        "url": "file:///home/kirill/Documents/projects/kirill.es"
+      }
+    },
+    "kirill-es-dev": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1791315820,
+        "narHash": "sha256-I4F/jTRaLuUBgcnimuthupMA3+8fg6YG0Px7fdI7AP4=",
+        "ref": "dev",
+        "rev": "e72fde1a1fb2c886dee970019b425850db914f81",
+        "revCount": 97,
+        "type": "git",
+        "url": "file:///home/kirill/Documents/projects/kirill.es"
+      },
+      "original": {
+        "ref": "dev",
+        "type": "git",
+        "url": "file:///home/kirill/Documents/projects/kirill.es"
       }
     },
     "llm-agents": {
@@ -300,6 +342,27 @@
       "original": {
         "owner": "numtide",
         "repo": "llm-agents.nix",
+        "type": "github"
+      }
+    },
+    "microvm": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "spectrum": "spectrum"
+      },
+      "locked": {
+        "lastModified": 1791289136,
+        "narHash": "sha256-CpbGI/6cFX1ZCz5kK+C0XlVBsCWXXfgyexIeM8hjZzY=",
+        "owner": "microvm-nix",
+        "repo": "microvm.nix",
+        "rev": "52860fa190bdecfe4a837de09b7f9e7babed4871",
+        "type": "github"
+      },
+      "original": {
+        "owner": "microvm-nix",
+        "repo": "microvm.nix",
         "type": "github"
       }
     },
@@ -485,8 +548,8 @@
         ]
       },
       "locked": {
-        "lastModified": 1790973969,
-        "narHash": "sha256-rSr9HImg5ZTavEy3M7vMW7ukW+0NKjwzl2F6AIgZ1SI=",
+        "lastModified": 1791646076,
+        "narHash": "sha256-+0Regggqe8G4B/C9LFN1eQV6V/Bq58N6VcBkr9D9eI4=",
         "path": "/home/kirill/Documents/projects/vibe-reel/backend",
         "type": "path"
       },
@@ -501,7 +564,10 @@
         "disko": "disko",
         "home-manager": "home-manager",
         "kirifin": "kirifin",
+        "kirill-es": "kirill-es",
+        "kirill-es-dev": "kirill-es-dev",
         "llm-agents": "llm-agents",
+        "microvm": "microvm",
         "nixpkgs": "nixpkgs_5",
         "nvidia-pstated": "nvidia-pstated",
         "reel-api": "reel-api",
@@ -528,6 +594,22 @@
         "owner": "Mic92",
         "repo": "sops-nix",
         "type": "github"
+      }
+    },
+    "spectrum": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1786032750,
+        "narHash": "sha256-+Ba/kIn5BjvV7PN8bWOo7RoqgTY/Yv2M7qeMf3wS2Ag=",
+        "ref": "refs/heads/main",
+        "rev": "77d2389874bb092b8dbf05ecc5b1030372e80e98",
+        "revCount": 1417,
+        "type": "git",
+        "url": "https://spectrum-os.org/git/spectrum"
+      },
+      "original": {
+        "type": "git",
+        "url": "https://spectrum-os.org/git/spectrum"
       }
     },
     "spicetify-nix": {

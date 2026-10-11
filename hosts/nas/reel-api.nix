@@ -10,22 +10,47 @@
 # hands a magnet to qBittorrent -- so a thin client (the TV) needs no torrent
 # stack of its own.
 #
-# Bound on the LAN and firewalled open, the same exposure Jellyfin has in
-# media.nix: the TV is a LAN device, not on the tailnet. Note the tradeoff --
-# unlike Jellyfin this carries a POST that starts a download, and there is no
-# auth, so anything on the LAN can enqueue one.
+# Bound to loopback (nginx's LAN /ml proxy and tailscale serve, both in
+# vibereel-phone.nix) and to the LAN address (the TV, which is a LAN device,
+# not on the tailnet) -- not 0.0.0.0, so not on the VPN namespace bridge.
+# Every request needs a Jellyfin access token of a signed-in user (the
+# clients send theirs; reel-api checks it against Jellyfin's /Users/Me), and
+# Host / Origin must name this box, which stops DNS-rebinding and cross-site
+# requests from browsers on the LAN. Nothing new to provision for that: no
+# secret of its own.
 #
 { inputs, config, lib, ... }:
+let
+  # The static LAN address (adguard.nix pins enp2s0).
+  lanAddr = (lib.head config.networking.interfaces.enp2s0.ipv4.addresses).address;
+in
 {
   imports = [ inputs.reel-api.nixosModules.default ];
 
   services.reel-api = {
     enable = true;
 
-    # Reachable from the TV over the LAN (http://nas:8790). Turns on the
-    # firewall rule for the port; the module also enables services.flaresolverr
-    # for Prowlarr's Cloudflare-gated indexers.
+    # Reachable from the TV over the LAN (http://<lanAddr>:8790). Turns on
+    # the firewall rule for the port; the module also enables
+    # services.flaresolverr for Prowlarr's Cloudflare-gated indexers.
     openFirewall = true;
+    listenAddresses = [
+      "127.0.0.1"
+      lanAddr
+    ];
+
+    # Names clients may reach it by (IP literals and localhost always work):
+    # MagicDNS / LAN short name, avahi (default.nix), AdGuard's .lan zone
+    # (adguard.nix), and the tailnet origin the phone app is served from
+    # (vibereel-phone.nix; the same name finance.nix uses).
+    allowedHosts = [
+      "nas"
+      "nas.local"
+      "nas.lan"
+      "nas.taila639ad.ts.net"
+      # VibeReel web (vibereel-web.nix), via the LAN listener or the tunnel.
+      "vr.kirill.es"
+    ];
 
     # qBittorrent sits inside the ProtonVPN namespace (vpn.nix); from this
     # host its WebUI answers at the namespace address, not loopback.

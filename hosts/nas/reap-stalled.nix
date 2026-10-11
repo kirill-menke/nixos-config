@@ -17,10 +17,18 @@
 # Blocklisting is per release, so the next search is free to pick any other
 # release of the same episode or film.
 #
-# Hourly is plenty: the grace periods are hours long, and each run is a
-# handful of local API calls.
+# It also imports finished Radarr downloads that Radarr itself blocks forever
+# as "matched to movie by ID. Manual Import required." -- a name like "The
+# Hunt (Jagten) (2012) ..." that its parser can't tie to the film, grabbed on
+# an indexer's IMDb id (2026-10: The Hunt sat "Importing" in VibeReel for a
+# day). Only when the title, year and Radarr's own import preview all agree;
+# reap-stalled.sh has the checks.
 #
-{ lib, pkgs, ... }:
+# Every 15 minutes: the reaper's grace periods are hours long, but a blocked
+# import is a film someone is waiting for. Each run is a handful of local API
+# calls, and a run still busy importing just absorbs the next tick.
+#
+{ config, lib, pkgs, ... }:
 let
   reapStalled = pkgs.writeShellApplication {
     name = "reap-stalled";
@@ -35,7 +43,7 @@ let
 in
 {
   systemd.services.reap-stalled = {
-    description = "Remove dead Sonarr/Radarr downloads, blocklist and re-search";
+    description = "Remove dead Sonarr/Radarr downloads, blocklist and re-search; clear Radarr's ID-only import blocks";
     after = [
       "sonarr.service"
       "radarr.service"
@@ -44,7 +52,7 @@ in
 
     environment = {
       # qBittorrent lives in the VPN namespace (vpn.nix); host-side clients
-      # reach it over the veth, where the WebUI auth whitelist lets them in.
+      # reach it over the veth and authenticate with its API key (arr.nix).
       QBIT_URL = "http://192.168.15.1:8080";
       SONARR_URL = "http://127.0.0.1:8989";
       RADARR_URL = "http://127.0.0.1:7878";
@@ -59,9 +67,11 @@ in
       # The API keys are read from each app's own config.xml, handed over as
       # credentials so the unit itself can run as a throwaway user with no
       # access to /var/lib/{sonarr,radarr}.
+      # qBittorrent's key is the hand-provisioned one from secretsDir.
       LoadCredential = [
         "sonarr.xml:/var/lib/sonarr/.config/NzbDrone/config.xml"
         "radarr.xml:/var/lib/radarr/.config/Radarr/config.xml"
+        "qbit-api-key:${config.nas.secretsDir}/qbittorrent-api-key"
       ];
       # progress.json: per-torrent verified byte count and when it last moved.
       StateDirectory = "reap-stalled";
@@ -82,12 +92,12 @@ in
   };
 
   systemd.timers.reap-stalled = {
-    description = "Hourly sweep for dead Sonarr/Radarr downloads";
+    description = "15-minute sweep for dead Sonarr/Radarr downloads and blocked imports";
     wantedBy = [ "timers.target" ];
     timerConfig = {
-      OnCalendar = "hourly";
+      OnCalendar = "*:0/15";
       Persistent = true;
-      RandomizedDelaySec = "5m";
+      RandomizedDelaySec = "1m";
     };
   };
 }

@@ -21,14 +21,31 @@
 #     and statistics live in the state directory, not the yaml, and survive
 #     restarts fine.
 #
-#   * No dashboard login, and the dashboard is NOT reachable from the LAN.
-#     AdGuard Home can only do auth via a bcrypt hash inside the yaml, and
-#     this module renders the yaml into the world-readable Nix store -- and
-#     this repo is public on top of that. Committing a password hash is off
-#     the table for the same reason root.hash lives outside the repo. Instead
-#     the UI port simply stays closed on the LAN firewall and is reachable
-#     only over tailscale0, which is a trusted interface: every packet there
-#     is WireGuard-authenticated as one of the tailnet devices.
+#   * The dashboard needs a login and listens on loopback only. Whoever can
+#     use it can add DNS rewrites, i.e. silently redirect any domain for
+#     every device on the LAN, so being "on the tailnet" or "a process on
+#     this box" is not enough -- and a page in any browser on a tailnet
+#     device could reach a bare port by DNS rebinding.
+#
+#     Reached as https://nas.<tailnet>.ts.net:3000 through `tailscale serve`
+#     (unit below), not on the LAN. The TLS name check also defeats DNS
+#     rebinding. Break-glass without Tailscale:
+#       ssh -L 3000:127.0.0.1:3000 root@nas.local   ->  http://localhost:3000
+#
+#     AdGuard Home only does auth via bcrypt hashes inside its yaml, and the
+#     module renders that yaml into the world-readable Nix store -- and this
+#     repo is public. A bcrypt hash is offline-crackable, so it stays out of
+#     both, like root.hash. preStart merges it into the runtime copy of the
+#     yaml (mode 600 in the service's private state dir) on every start.
+#     Provision it once, on the NAS (htpasswd prompts for the password):
+#
+#       nix shell nixpkgs#apacheHttpd -c htpasswd -nBC 12 kirill \
+#         | install -Dm600 /dev/stdin /var/lib/nixos-secrets/adguardhome/htpasswd
+#       systemctl restart adguardhome
+#
+#     One `name:bcrypt-hash` line per account. If the file is missing or
+#     empty, the UI is locked (no login can succeed) while DNS and DHCP keep
+#     running -- it fails closed without taking the LAN down with it.
 #
 #   * DNS (53) is open to the LAN, and this box is ALSO the LAN's DHCP
 #     server. That is not by preference but forced by the router: the
@@ -59,11 +76,27 @@
 # itself runs `--accept-dns=false` (tailscale.nix), so it never tries to
 # resolve through itself over the tailnet -- no loop.
 #
-{ ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 let
   # This box on the LAN, and the Vodafone Station.
   nasAddr = "192.168.0.175";
   router = "192.168.0.1";
+
+  # Web UI: loopback port, and the same port number on the tailnet (HTTPS).
+  uiPort = 3000;
+
+  # Hand-provisioned web UI logins (htpasswd format, see header). A directory
+  # rather than the file itself, because LoadCredential on a missing file
+  # fails the whole unit (and with it LAN DNS); an empty directory does not.
+  uiLoginDir = "${config.nas.secretsDir}/adguardhome";
+
+  yq = lib.getExe pkgs.yq-go;
+  tailscaleServe = "${pkgs.tailscale}/bin/tailscale serve";
 in
 {
   #############################################################################
@@ -97,14 +130,12 @@ in
     allowDHCP = true;
 
     # Deliberately NOT the module's openFirewall: that would open the web UI
-    # port to the LAN, and the UI has no login (see header). Port 53 is opened
-    # manually below; the UI stays tailnet-only.
+    # port to the LAN. Port 53 is opened manually below.
     openFirewall = false;
 
-    # Web UI bind address. 0.0.0.0 so it answers on tailscale0; the LAN never
-    # reaches it because the firewall keeps 3000 closed.
-    host = "0.0.0.0";
-    port = 3000;
+    # Web UI on loopback only; tailscale serve (below) is the way in.
+    host = "127.0.0.1";
+    port = uiPort;
 
     mutableSettings = false;
 
@@ -137,6 +168,16 @@ in
       filtering = {
         protection_enabled = true;
         filtering_enabled = true;
+        # VibeReel web (vibereel-web.nix): at home, straight to nginx on the
+        # LAN address instead of out through Cloudflare and the tunnel. AAAA
+        # for the name answers empty, so no client picks Cloudflare's v6.
+        rewrites = [
+          {
+            domain = "vr.kirill.es";
+            answer = nasAddr;
+            enabled = true;
+          }
+        ];
       };
 
       filters = [
@@ -190,8 +231,56 @@ in
     };
   };
 
+  # Web UI login, merged in at runtime (see header). Runs as the module's
+  # DynamicUser after its own preStart has copied the store yaml into place,
+  # so it rewrites that fresh copy every start. Credentials come in through
+  # LoadCredential, since the dynamic user cannot read the secrets dir.
+  systemd.tmpfiles.rules = [ "d ${uiLoginDir} 0700 root root -" ];
+  systemd.services.adguardhome = {
+    # On a switch that first adds the tmpfiles rule, create the dir before
+    # the restarted unit tries to load it.
+    after = [ "systemd-tmpfiles-resetup.service" ];
+    serviceConfig.LoadCredential = [ "ui:${uiLoginDir}" ];
+    # No `yq -i`: it chowns its temp file back to the original owner, and
+    # chown is in @privileged, which the module's SystemCallFilter denies
+    # (SIGSYS, "Bad system call"). Write a temp file and rename it instead;
+    # UMask=0077 keeps it 0600.
+    preStart = lib.mkAfter ''
+      conf="$STATE_DIRECTORY/AdGuardHome.yaml"
+      yqi() { ${yq} "$1" "$conf" > "$conf.tmp"; mv -f "$conf.tmp" "$conf"; }
+      yqi '.users = []'
+      for f in "$CREDENTIALS_DIRECTORY"/ui_*; do
+        [ -f "$f" ] || continue
+        while IFS=: read -r name hash || [ -n "$name" ]; do
+          [ -n "$name" ] && [ -n "$hash" ] || continue
+          NAME="$name" HASH="$hash" yqi '.users += [{"name": strenv(NAME), "password": strenv(HASH)}]'
+        done < "$f"
+      done
+      if [ "$(${yq} '.users | length' "$conf")" -eq 0 ]; then
+        echo "no web UI login in ${uiLoginDir}: UI locked, see adguard.nix" >&2
+        # Not a bcrypt hash, so every login attempt fails.
+        yqi '.users = [{"name": "locked", "password": "!"}]'
+      fi
+    '';
+  };
+
+  # Publish the loopback UI on this node's tailnet name, HTTPS port 3000.
+  # Same pattern as finance.nix; `off` on stop clears only this port.
+  systemd.services.adguardhome-tailscale-serve = {
+    description = "Publish the AdGuard Home UI on port ${toString uiPort} via tailscale serve";
+    after = [ "tailscaled.service" ];
+    wants = [ "tailscaled.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = "${tailscaleServe} --bg --https=${toString uiPort} http://127.0.0.1:${toString uiPort}";
+      ExecStop = "${tailscaleServe} --https=${toString uiPort} off";
+    };
+  };
+
   # DNS and DHCP to the LAN. The web UI port is deliberately absent here
-  # (tailnet-only, see header).
+  # (loopback + tailscale serve, see header).
   networking.firewall = {
     allowedTCPPorts = [ 53 ];
     allowedUDPPorts = [

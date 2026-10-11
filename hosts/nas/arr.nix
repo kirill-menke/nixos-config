@@ -24,14 +24,66 @@
 # that watcher fires on Sonarr's imports exactly as it does on manual copies.
 # Two subtitle fetchers would fight over the same .srt paths.
 #
-{ config, lib, ... }:
+{ config, lib, pkgs, ... }:
 let
-  inherit (config.nas) downloadRoot;
+  inherit (config.nas) downloadRoot secretsDir;
 
   ports = {
     qbitWebUI = 8080;
     qbitTorrenting = 51413;
   };
+
+  # Splices the WebUI secrets into the qBittorrent.conf the module has just
+  # installed from the store (see the auth note in serverConfig). Runs as
+  # ExecStartPre, as the qbittorrent user, reading systemd credentials.
+  qbitWebUIAuth = pkgs.writers.writePython3Bin "qbittorrent-webui-auth" { flakeIgnore = [ "E501" ]; } ''
+    import base64
+    import hashlib
+    import os
+    import re
+    import secrets
+    import sys
+
+    conf = sys.argv[1]
+    creds = os.environ["CREDENTIALS_DIRECTORY"]
+
+
+    def credential(name):
+        with open(os.path.join(creds, name)) as f:
+            return f.read().rstrip("\n")
+
+
+    password = credential("webui-password")
+    api_key = credential("webui-api-key").strip()
+
+    if not password:
+        sys.exit("qbittorrent-webui-auth: the WebUI password credential is empty")
+    # Utils::APIKey::isValid. qBittorrent silently drops a malformed key, which
+    # would only show up later as Sonarr/Radarr getting 403s.
+    if not re.fullmatch(r"qbt_[A-Za-z0-9]{28}", api_key):
+        sys.exit("qbittorrent-webui-auth: the API key must be qbt_ + 28 letters/digits")
+
+    # Utils::Password::PBKDF2::generate: PBKDF2-HMAC-SHA512, 100000 rounds,
+    # 16-byte salt, 64-byte key, stored as base64(salt):base64(key). A fresh
+    # salt per start is fine: sessions do not survive a restart anyway.
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha512", password.encode(), salt, 100000, 64)
+    pbkdf2 = base64.b64encode(salt).decode() + ":" + base64.b64encode(digest).decode()
+
+    with open(conf) as f:
+        lines = f.read().splitlines()
+    at = lines.index("[Preferences]") + 1
+    lines[at:at] = [
+        'WebUI\\Password_PBKDF2="@ByteArray(' + pbkdf2 + ')"',
+        "WebUI\\APIKey=" + api_key,
+    ]
+
+    tmp = conf + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    os.replace(tmp, conf)
+  '';
 in
 {
   #############################################################################
@@ -60,6 +112,16 @@ in
     "d ${downloadRoot}/complete    2775 qbittorrent users -"
   ];
 
+  # qBittorrent.conf holds the WebUI API key in clear (and the password hash,
+  # see the auth note below). The ExecStartPre writes it 0600, but qBittorrent
+  # rewrites the file itself at runtime under the UMask 0002 set further down
+  # -- measured with 5.2.3: 0664, i.e. world-readable, which would hand the
+  # key to every local process. The module creates this directory 0755; a
+  # private directory makes the file's own mode moot. tmpfiles also tightens
+  # the existing directory on the next activation.
+  systemd.tmpfiles.settings.qbittorrent."${config.services.qbittorrent.profileDir}/qBittorrent/config/".d.mode =
+    lib.mkForce "0700";
+
   #############################################################################
   # Library write access
   #############################################################################
@@ -81,9 +143,51 @@ in
   # media. Measured 2026-09: strip-subtitles failed on all 67 *arr-imported
   # files, every night, with "Permission denied". 0002 makes new folders 2775
   # and files 664, which is the library's rule anyway.
-  systemd.services = lib.genAttrs [ "sonarr" "radarr" "qbittorrent" ] (_: {
-    serviceConfig.UMask = lib.mkForce "0002";
-  });
+  systemd.services = lib.mkMerge [
+    (lib.genAttrs [ "sonarr" "radarr" "qbittorrent" ] (_: {
+      serviceConfig.UMask = lib.mkForce "0002";
+    }))
+
+    {
+      qbittorrent = {
+        # ReadWritePaths below needs the dataset mounted, or the unit fails
+        # with 226/NAMESPACE instead of waiting for it.
+        unitConfig.RequiresMountsFor = [ downloadRoot ];
+
+        serviceConfig = {
+          # WebUI credentials, off this public repo. Hand-provisioned, like
+          # the other secrets under secretsDir (see the auth note in
+          # serverConfig for what reads them). If either file is missing
+          # the unit fails to start (243/CREDENTIALS) -- deliberate, the
+          # same fail-closed rule as reel-api's environmentFile.
+          LoadCredential = [
+            "webui-password:${secretsDir}/qbittorrent-webui-password"
+            "webui-api-key:${secretsDir}/qbittorrent-api-key"
+          ];
+          # After the module's own ExecStartPre has installed the store copy.
+          ExecStartPre = lib.mkAfter [
+            "${lib.getExe qbitWebUIAuth} ${config.services.qbittorrent.profileDir}/qBittorrent/config/qBittorrent.conf"
+          ];
+
+          # Least privilege on disk: anything that does get the WebUI (and
+          # with it "Run external program on torrent completion") runs as
+          # this user, which is in `users` and could otherwise rewrite the
+          # library. qBittorrent itself only ever writes its profile and
+          # downloadRoot: the import into mediaRoot is Sonarr/Radarr's own
+          # hardlink, done by their processes, and "Remove Completed"
+          # deletes within downloadRoot. /tmp stays writable as under the
+          # module's ProtectSystem=full: magnet metadata fetches use
+          # /tmp/.qBittorrent (sessionimpl.cpp, Utils::Fs::tempPath).
+          ProtectSystem = lib.mkForce "strict";
+          ReadWritePaths = [
+            config.services.qbittorrent.profileDir
+            downloadRoot
+            "/tmp"
+          ];
+        };
+      };
+    }
+  ];
 
   # Imported downloads are deleted, not kept. qBittorrent never seeds past
   # completion (GlobalMaxSeedingMinutes = 0 below), so a finished torrent's
@@ -144,10 +248,9 @@ in
     #
     # That is the same bargain as `forceEncodingConfig = true` in media.nix --
     # config is declarative or it is not real -- but it has a sharp edge that
-    # setting does not: a WebUI password would also be wiped, qBittorrent
-    # would mint a fresh random one into the journal on each boot, and the
-    # Sonarr/Radarr download-client connections would break every reboot.
-    # Hence the auth handling below.
+    # setting does not: a password set in the WebUI would also be wiped, so
+    # the WebUI secrets are spliced back in by an ExecStartPre on every start
+    # (qbitWebUIAuth above). Hence the auth handling below.
     serverConfig = {
       # Without this qBittorrent blocks on an interactive "do you accept"
       # prompt at first start and the service just sits there, never binding
@@ -199,26 +302,45 @@ in
           TempPathEnabled = true;
         };
 
-        # Auth by network position rather than by a password, because the
-        # alternative is a PBKDF2 hash sitting in the world-readable Nix
-        # store, and because no password can persist across a restart anyway
-        # (see above).
+        # Every client authenticates; there is no subnet whitelist. An
+        # authenticated WebUI client can set "Run external program on
+        # torrent completion" (app/setPreferences, which 5.2 has no way to
+        # lock), i.e. it gets code execution as qbittorrent. The old
+        # whitelist granted that to 100.64.0.0/10 -- every tailnet node --
+        # and to 192.168.15.0/24, which is every process on this host:
+        # host-side traffic to 192.168.15.1 always enters the namespace
+        # from the bridge address 192.168.15.5, whoever sent it.
         #
-        # Since the VPN confinement (vpn.nix) nothing arrives over loopback:
-        # Sonarr, Radarr and reel-api reach the WebUI at 192.168.15.1:8080 and
-        # their connections enter the namespace from the veth bridge, so the
-        # 192.168.15.0/24 entry is what covers them now (LocalHostAuth stays
-        # off for a shell inside the netns). 100.64.0.0/10 is the tailnet,
-        # which comes in via the port mapping on host:8080 -- the firewall
-        # never opens 8080 to the LAN.
+        # Who uses what (secrets in secretsDir, provisioned by hand):
+        #   * Sonarr, Radarr (and Prowlarr, if it has qBittorrent as a
+        #     download client) and reap-stalled: the API key
+        #     (qbittorrent-api-key, "qbt_" + 28 letters/digits), sent as
+        #     `Authorization: Bearer`. Stateless, never expires, and exempt
+        #     from the failed-login IP ban -- which matters, since all host
+        #     clients share the one source address 192.168.15.5. In the
+        #     *arrs: Settings > Download Clients > qBittorrent > ApiKey,
+        #     with Username/Password empty (they refuse both at once).
+        #   * The browser over the tailnet: user `admin` + the password
+        #     (qbittorrent-webui-password, one line).
+        #   * reel-api: the password too -- it cannot send a Bearer header,
+        #     but its httpx client takes Basic auth from the URL and keeps
+        #     the session cookie. reel-api.env carries the override, which
+        #     beats the module's Environment= QBIT_URL:
+        #       QBIT_URL=http://admin:<password>@192.168.15.1:8080
+        #     Do NOT use QBIT_USERNAME/QBIT_PASSWORD: that logs in once and
+        #     never again, so it breaks at the first session expiry or
+        #     qBittorrent restart.
+        #   * proton-natpmp (vpn.nix) runs inside the namespace and talks to
+        #     127.0.0.1, covered by LocalHostAuth = false. Only qBittorrent
+        #     and that loop live in the namespace, so loopback there is not a
+        #     way in for anything else.
         #
-        # If either key name is wrong for this qBittorrent version the failure
-        # is safe: an unrecognised key is ignored, auth stays on, and you get
-        # a login prompt rather than an open UI.
+        # The hash and key are never in the store: qbitWebUIAuth writes
+        # them into the runtime copy of this file (0600, qbittorrent).
         WebUI = {
+          Username = "admin";
           LocalHostAuth = false;
-          AuthSubnetWhitelistEnabled = true;
-          AuthSubnetWhitelist = "192.168.15.0/24, 100.64.0.0/10";
+          AuthSubnetWhitelistEnabled = false;
         };
       };
     };
