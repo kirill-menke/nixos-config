@@ -7,7 +7,7 @@
 
     "modules-left": ["hyprland/workspaces", "tray"],
     "modules-center": ["group/hw"],
-    "modules-right": ["custom/network", "bluetooth", "hyprland/language", "pulseaudio", "custom/weather", "clock", "custom/pomodoro", "custom/power"],
+    "modules-right": ["custom/network", "bluetooth", "hyprland/language", "pulseaudio", "custom/display", "custom/weather", "clock", "custom/pomodoro", "custom/power"],
 
     // One box carries the pill background, so the rounded ends stay intact
     // when a member (e.g. GPU) hides itself
@@ -65,6 +65,17 @@
         "on-click": "bar-popup sound",
         "cursor": true,
         "on-click-right": "pavucontrol"
+    },
+    // Evening mode (warm tint) and monitor brightness. `nightlight daemon`
+    // re-runs this through "signal" whenever the tint changes.
+    "custom/display": {
+        "exec": "nightlight status",
+        "return-type": "json",
+        "interval": 60,
+        "signal": 8, // nightlight.WAYBAR_SIGNAL
+        "on-click": "bar-popup display",
+        "cursor": true,
+        "on-click-right": "nightlight toggle"
     },
     "hyprland/language": {
         "format": "󰌌 {}",

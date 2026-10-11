@@ -14,8 +14,9 @@ let
   ]);
 
   # The catppuccin waybar popups -- pomodoro-popup, and bar-popup for the
-  # network/bluetooth/sound modules -- wrapped so they find the
-  # GTK/layer-shell GObject-Introspection typelibs at runtime.
+  # network/bluetooth/sound/display modules -- wrapped so they find the
+  # GTK/layer-shell GObject-Introspection typelibs at runtime.  nightlight is
+  # the evening-mode scheduler behind the display card (and its own CLI).
   waybar-popups = pkgs.stdenv.mkDerivation {
     name = "waybar-popups";
     src = ../../dotfiles/waybar/scripts;
@@ -32,12 +33,17 @@ let
     dontBuild = true;
     installPhase = ''
       runHook preInstall
-      mkdir -p $out/bin
-      for name in pomodoro-popup bar-popup; do
+      mkdir -p $out/bin $out/lib
+      for name in pomodoro-popup bar-popup nightlight; do
         sed "1s|.*|#!${popupPython}/bin/python3|" $name.py > $out/bin/$name
         chmod +x $out/bin/$name
       done
+      # bar-popup imports nightlight for the display card.
+      cp nightlight.py $out/lib/
       runHook postInstall
+    '';
+    preFixup = ''
+      gappsWrapperArgs+=(--prefix PYTHONPATH : $out/lib)
     '';
   };
 
@@ -186,7 +192,12 @@ let
     # this output asks for a mode the TV cannot do and silently falls back).
     orig=$($HYPRMON get "$MON")
 
+    # hyprsunset tints every output alike, so evening mode would tint the
+    # film too: neutral colours until Celluloid quits.
+    ${waybar-popups}/bin/nightlight pause $$ || true
+
     restore() {
+      ${waybar-popups}/bin/nightlight resume $$ || true
       if [ -n "$orig" ]; then
         $HYPRMON set "$orig"
       fi
@@ -513,6 +524,7 @@ let
         rm -f "$HANDOFF"
         return
       fi
+      ${waybar-popups}/bin/nightlight resume $$ || true
       if [ "$(cat "$PIDFILE" 2>/dev/null)" = "$$" ]; then
         rm -f "$PIDFILE" "$MPVPIDFILE" "$STATEFILE" "$ORIGFILE"
       fi
@@ -521,6 +533,11 @@ let
       fi
     }
     trap restore EXIT INT TERM
+
+    # hyprsunset tints every output alike, so evening mode would tint the
+    # film too.  Neutral colours until playback ends (restore resumes it; a
+    # successor that takes over pauses again under its own PID).
+    ${waybar-popups}/bin/nightlight pause $$ || true
 
     if [ -n "$orig" ] && [ -n "$mode" ]; then
       pos=$(printf '%s' "$orig" | cut -d, -f3)
@@ -797,8 +814,9 @@ in
     glow # styled + paged rendering, no image support
     mdcat # inline images via kitty's graphics protocol, but only unpaged
 
-    # Waybar popups: pomodoro timer, network/bluetooth/sound cards
+    # Waybar popups: pomodoro timer, network/bluetooth/sound/display cards
     waybar-popups
+    ddcutil # monitor brightness over DDC/CI, for the display card
 
     # Themes/Appearance
     # catppuccin-gtk / catppuccin-papirus-folders are installed via the gtk block below
@@ -1018,6 +1036,30 @@ in
       RestartSec = 5;
     };
     Install.WantedBy = [ "default.target" ];
+  };
+
+  # Evening mode.  hyprsunset holds the colour matrix and starts neutral;
+  # nightlight (waybar-popups) owns the schedule and the settings in
+  # ~/.local/state/nightlight.json, which the waybar display card edits.
+  # hyprsunset's own profiles stay unused: they live in a read-only config
+  # and every change would need a restart, which flashes the screens.
+  services.hyprsunset = {
+    enable = true;
+    extraArgs = [ "--identity" ];
+  };
+
+  systemd.user.services.nightlight = {
+    Unit = {
+      Description = "Evening mode schedule for hyprsunset";
+      After = [ "hyprsunset.service" ];
+      PartOf = [ config.wayland.systemd.target ];
+    };
+    Service = {
+      ExecStart = "${waybar-popups}/bin/nightlight daemon";
+      Restart = "on-failure";
+      RestartSec = 5;
+    };
+    Install.WantedBy = [ config.wayland.systemd.target ];
   };
 
   # Make the normal "Celluloid" launcher entry use the sink-aware wrapper, so

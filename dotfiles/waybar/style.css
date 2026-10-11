@@ -34,6 +34,7 @@
 #custom-pomodoro,
 #custom-power,
 #pulseaudio,
+#custom-display,
 #custom-network,
 #custom-weather,
 #bluetooth,
@@ -50,6 +51,7 @@
 #bluetooth,
 #language,
 #pulseaudio,
+#custom-display,
 #custom-pomodoro {
   transition: background-color 200ms ease-in-out;
 }
@@ -58,6 +60,7 @@
 #bluetooth:hover,
 #language:hover,
 #pulseaudio:hover,
+#custom-display:hover,
 #custom-pomodoro:hover {
   background-color: @surface1;
 }
@@ -167,8 +170,19 @@
 
 #pulseaudio {
   color: @maroon;
+  border-radius: 0;
+  margin: 5px 0;
+}
+
+/* Evening mode: a sun by day, a moon in warm peach while the tint is on */
+#custom-display {
+  color: @yellow;
   border-radius: 0px 1rem 1rem 0px;
   margin: 5px 0;
+}
+
+#custom-display.on {
+  color: @peach;
 }
 
 #tray {

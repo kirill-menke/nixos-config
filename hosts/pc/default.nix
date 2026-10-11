@@ -195,6 +195,11 @@ in
     };
   };
 
+  # DDC/CI: the monitors' own brightness/contrast over the display cable,
+  # for the waybar display card (bar-popup display).  Loads i2c-dev and gives
+  # the seat user access to /dev/i2c-*.
+  hardware.i2c.enable = true;
+
   systemd.services.iphone-hid = {
     description = "PC keyboard and mouse as a Bluetooth HID device for the iPhone";
     wantedBy = [ "multi-user.target" ];

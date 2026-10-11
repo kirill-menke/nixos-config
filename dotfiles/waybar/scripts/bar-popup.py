@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Catppuccin popups for the waybar network, bluetooth and sound modules.
+"""Catppuccin popups for the waybar network, bluetooth, sound and display
+modules.
 
-`bar-popup network|bluetooth|sound` opens a card in the style of the pomodoro
-popup, just under the bar and centred on the click. One process serves all
-three panels: launching it again for the panel that is open closes it (a
-second click on the same module), for another panel it swaps the card. Esc or
-a click anywhere below the bar closes it too.
+`bar-popup network|bluetooth|sound|display` opens a card in the style of the
+pomodoro popup, just under the bar and centred on the click. One process
+serves all four panels: launching it again for the panel that is open closes
+it (a second click on the same module), for another panel it swaps the card.
+Esc or a click anywhere below the bar closes it too.
 """
 
 import json
@@ -20,6 +21,8 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("GtkLayerShell", "0.1")
 gi.require_version("Pango", "1.0")
 from gi.repository import Gdk, Gio, GLib, Gtk, GtkLayerShell, Pango  # noqa: E402,E501
+
+import nightlight  # noqa: E402  (next to this file; PYTHONPATH when packaged)
 
 CARD_W = 360    # fixed, so the card can be centred before it is drawn, px
 CARD_TOP = 4    # gap under the bar's reserved area, px
@@ -49,6 +52,13 @@ ICON = {
     "muted": "\U000f0581",
     "add": "\U000f0415",
     "mixer": "\U000f066a",
+    "monitor": "\U000f0379",
+    "screen-off": "\U000f0d90",
+    "night": "\U000f0594",
+    "warmth": "\U000f18d6",
+    "schedule": "\U000f1a77",
+    "minus": "\U000f0374",
+    "plus": "\U000f0415",
 }
 
 CSS = b"""
@@ -113,6 +123,14 @@ window { background-color: transparent; }
 }
 .iconbtn:hover { background-color: #45475a; }
 .iconbtn.on { color: #f38ba8; }
+
+/* Display card: slider rows line their glyph up with the switch rows, and
+   the schedule's time steppers sit under its name. */
+.slider { padding: 0 10px; }
+.steppers { margin: -4px 10px 2px 46px; }
+.iconbtn.mini { font-size: 15px; padding: 0 4px; }
+.time { font-weight: bold; }
+.steppers:disabled .time { color: #6c7086; }
 
 .pill {
     background-color: #45475a;
@@ -933,12 +951,303 @@ class SoundPanel(Panel):
         return GLib.SOURCE_REMOVE
 
 
+# --- Display ---------------------------------------------------------------
+
+TIME_STEP = 30  # min per click on a schedule stepper
+
+
+def slider(lo, hi, step):
+    scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, lo, hi, step)
+    scale.set_draw_value(False)
+    scale.set_can_focus(False)
+    return hand(scale)
+
+
+def slider_row(icon, name, scale, value):
+    """Glyph, name, slider and its value, aligned with the switch rows."""
+    box = Gtk.Box(spacing=12)
+    box.get_style_context().add_class("slider")
+    glyph = label(icon, "icon", xalign=0.5)
+    glyph.set_size_request(24, -1)
+    box.pack_start(glyph, False, False, 0)
+    title = label(name, ellipsize=Pango.EllipsizeMode.END)
+    title.set_size_request(62, -1)
+    box.pack_start(title, False, False, 0)
+    box.pack_start(scale, True, True, 0)
+    value.set_width_chars(6)
+    value.set_xalign(1.0)
+    box.pack_start(value, False, False, 0)
+    return box
+
+
+class DisplayPanel(Panel):
+    """Evening mode (warm tint and lower brightness on a schedule, run by
+    `nightlight daemon`) and each monitor's own brightness over DDC/CI."""
+
+    title = "Display"
+    css = "display"
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.header_button(
+            ICON["screen-off"], "Turn the screens off", "sh", "-c",
+            # A second for the hand to leave the mouse: moving it wakes them.
+            "sleep 1; hyprctl dispatch 'hl.dsp.dpms({ action = \"off\" })'")
+        self.state = nightlight.load()
+        self.dimmed = nightlight.read_json(nightlight.DIMMED, {})
+        self._warmth_id = None
+        self.want = {}    # bus -> brightness asked for
+        self.busy = set()  # buses with a ddcutil write in flight
+        self.fill()
+        # The daemon flips evening mode at the switch times, and the bar's
+        # right click toggles it; follow either while the card is open.
+        self._poll_id = GLib.timeout_add_seconds(1, self._poll)
+        self.connect("destroy", lambda *_: GLib.source_remove(self._poll_id))
+
+    def fill(self):
+        # Evening mode: on/off, then how warm, then when.
+        evening, self.evening_sub, self.evening_switch = self._switch_row(
+            ICON["night"], "Evening mode")
+        self.body.pack_start(evening, False, False, 0)
+        self._evening_id = self.evening_switch.connect(
+            "notify::active", self._on_evening)
+
+        self.warmth = slider(nightlight.WARMTH_MIN, nightlight.WARMTH_MAX, 100)
+        self.warmth_val = label("")
+        self.body.pack_start(slider_row(ICON["warmth"], "Warmth",
+                                        self.warmth, self.warmth_val),
+                             False, False, 0)
+        self._warmth_scale_id = self.warmth.connect("value-changed",
+                                                    self._on_warmth)
+
+        schedule, _, self.auto_switch = self._switch_row(
+            ICON["schedule"], "Schedule", sub=False)
+        self.body.pack_start(schedule, False, False, 0)
+        self._auto_id = self.auto_switch.connect("notify::active",
+                                                 self._on_auto)
+        self.steppers = Gtk.Box(spacing=4)
+        self.steppers.get_style_context().add_class("steppers")
+        self.start_val = self._stepper("start")
+        self.steppers.pack_start(label("to", "sub"), False, False, 6)
+        self.end_val = self._stepper("end")
+        self.body.pack_start(self.steppers, False, False, 0)
+        self.sync()
+
+        self.body.pack_start(label("Brightness", "seclabel"), False, False, 0)
+        self.monitors = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.monitors.pack_start(label("Asking the monitors…", "empty"),
+                                 False, False, 0)
+        self.body.pack_start(self.monitors, False, False, 0)
+        self._find_monitors()
+
+    def _switch_row(self, icon, name, sub=True):
+        box = Gtk.Box(spacing=12)
+        box.get_style_context().add_class("static")
+        glyph = label(icon, "icon", xalign=0.5)
+        glyph.set_size_request(24, -1)
+        box.pack_start(glyph, False, False, 0)
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        text.set_valign(Gtk.Align.CENTER)
+        text.pack_start(label(name, "name"), False, False, 0)
+        line = label("", "sub") if sub else None
+        if line:
+            text.pack_start(line, False, False, 0)
+        box.pack_start(text, True, True, 0)
+        switch = hand(Gtk.Switch())
+        switch.set_valign(Gtk.Align.CENTER)
+        box.pack_end(switch, False, False, 0)
+        return box, line, switch
+
+    def _stepper(self, key):
+        """− HH:MM +, moving the schedule's `key` time by TIME_STEP."""
+        value = label("", "time", xalign=0.5)
+        value.set_width_chars(5)
+        for glyph, step in ((ICON["minus"], -TIME_STEP), (None, 0),
+                            (ICON["plus"], TIME_STEP)):
+            if glyph is None:
+                self.steppers.pack_start(value, False, False, 0)
+                continue
+            btn = button(glyph, "iconbtn", "mini")
+            btn.connect("clicked", self._on_step, key, step)
+            self.steppers.pack_start(btn, False, False, 0)
+        return value
+
+    # --- evening mode ----------------------------------------------------
+
+    def sync(self):
+        """Show self.state."""
+        st = self.state
+        with self.evening_switch.handler_block(self._evening_id):
+            self.evening_switch.set_active(st["on"])
+        with self.auto_switch.handler_block(self._auto_id):
+            self.auto_switch.set_active(st["auto"])
+        with self.warmth.handler_block(self._warmth_scale_id):
+            self.warmth.set_value(self._kelvin(st["warmth"]))
+        self.warmth_val.set_text(f"{st['warmth']} K")
+        self.start_val.set_text(st["start"])
+        self.end_val.set_text(st["end"])
+        self.steppers.set_sensitive(st["auto"])
+
+        evening = nightlight.in_evening(st)
+        if st["on"] and nightlight.paused():
+            sub = "Paused while a film plays on the TV"
+        elif st["on"]:
+            sub = f"On until {st['end']}" if st["auto"] and evening else "On"
+        elif st["auto"]:
+            sub = "Off for tonight" if evening else f"From {st['start']}"
+        else:
+            sub = "Off"
+        self.evening_sub.set_text(sub)
+
+    def _write(self, **changes):
+        """Save to the state file and wake the daemon, which applies it.
+        Turning the schedule on or moving it means following it right away,
+        as the daemon would."""
+        st = self.state
+        st.update(changes)
+        if st["auto"] and ({"auto", "start", "end"} & changes.keys()):
+            st["on"] = changes["on"] = nightlight.in_evening(st)
+        nightlight.update(**changes)
+        self.sync()
+
+    def _poll(self):
+        current = nightlight.load()
+        if current != self.state:
+            self.state = current
+            self.sync()
+        # The daemon has just dimmed or restored the monitors: show it.
+        dimmed = nightlight.read_json(nightlight.DIMMED, {})
+        if dimmed != self.dimmed:
+            self.dimmed = dimmed
+            self._find_monitors()
+        return GLib.SOURCE_CONTINUE
+
+    def _on_evening(self, switch, _pspec):
+        self._write(on=switch.get_active())
+
+    def _on_auto(self, switch, _pspec):
+        self._write(auto=switch.get_active())
+
+    def _on_step(self, _btn, key, step):
+        mins = nightlight.minutes(self.state[key]) + step
+        self._write(**{key: nightlight.hhmm(mins % 1440)})
+
+    @staticmethod
+    def _kelvin(value):
+        """Slider position <-> K, both ways: further right is warmer, which
+        is fewer K, and the fill grows from the left like the others."""
+        return nightlight.WARMTH_MIN + nightlight.WARMTH_MAX - int(value)
+
+    def _on_warmth(self, scale):
+        self.warmth_val.set_text(f"{self._kelvin(scale.get_value())} K")
+        # Every write is a colour-matrix commit; a drag needs far fewer.
+        if self._warmth_id is None:
+            self._warmth_id = GLib.timeout_add(60, self._apply_warmth)
+
+    def _apply_warmth(self):
+        self._warmth_id = None
+        self._write(warmth=self._kelvin(self.warmth.get_value()))
+        return GLib.SOURCE_REMOVE
+
+    # --- brightness over DDC/CI -----------------------------------------
+
+    def _find_monitors(self):
+        """Read each monitor's brightness; `ddcutil detect` takes most of a
+        second, so its bus numbers are kept for the session and only looked
+        up again when a read fails."""
+        buses = nightlight.read_json(nightlight.DDC_CACHE, None)
+        if buses:
+            self._read_all(buses, cached=True)
+        else:
+            run_async(self._detected, "ddcutil", "detect", "--terse")
+
+    def _detected(self, _ok, out, _err):
+        if self.dead:
+            return
+        buses = nightlight.parse_detect(out)
+        try:
+            nightlight.write_json(nightlight.DDC_CACHE, buses)
+        except OSError:
+            pass
+        self._read_all(buses, cached=False)
+
+    def _read_all(self, buses, cached):
+        if not buses:
+            self._show_monitors({}, {})
+            return
+        found = {}
+
+        def got(ok, out, _err, conn):
+            if self.dead:
+                return
+            found[conn] = nightlight.parse_brightness(out) if ok else None
+            if len(found) < len(buses):
+                return
+            if cached and None in found.values():
+                # Stale bus numbers (a monitor moved ports): look again.
+                run_async(self._detected, "ddcutil", "detect", "--terse")
+            else:
+                self._show_monitors(buses, found)
+
+        for conn, bus in buses.items():
+            run_async(lambda ok, out, err, conn=conn: got(ok, out, err, conn),
+                      "ddcutil", "--bus", str(bus), "--skip-ddc-checks",
+                      "getvcp", "10", "--brief")
+
+    def _show_monitors(self, buses, found):
+        for child in self.monitors.get_children():
+            child.destroy()
+        try:
+            hypr = {m["name"]: m for m in json.loads(
+                run("hyprctl", "-j", "monitors") or "[]")}
+        except ValueError:
+            hypr = {}
+        # Left to right, the way they stand on the desk.
+        shown = sorted((c for c in buses if found.get(c) and c in hypr),
+                       key=lambda c: (hypr[c]["x"], hypr[c]["y"]))
+        for conn in shown:
+            bus, (level, top) = buses[conn], found[conn]
+            scale = slider(0, top, 1)
+            scale.set_value(level)
+            pct = label(f"{round(100 * level / top)}%")
+            scale.connect("value-changed", self._on_brightness, bus, top, pct)
+            self.monitors.pack_start(
+                slider_row(ICON["monitor"], hypr[conn].get("model") or conn,
+                           scale, pct), False, False, 0)
+        if not shown:
+            self.monitors.pack_start(label("No monitor answers DDC/CI",
+                                           "empty"), False, False, 0)
+        self.monitors.show_all()
+
+    def _on_brightness(self, scale, bus, top, pct):
+        level = int(scale.get_value())
+        pct.set_text(f"{round(100 * level / top)}%")
+        # One write at a time per monitor (~150 ms each); a drag only
+        # needs to end on the last value.
+        self.want[bus] = level
+        if bus not in self.busy:
+            self._set_brightness(bus)
+
+    def _set_brightness(self, bus):
+        level = self.want[bus]
+        self.busy.add(bus)
+        run_async(lambda *_: self._brightness_set(bus, level),
+                  "ddcutil", "--bus", str(bus), "--skip-ddc-checks",
+                  "--noverify", "setvcp", "10", str(level))
+
+    def _brightness_set(self, bus, level):
+        self.busy.discard(bus)
+        if self.want[bus] != level:
+            self._set_brightness(bus)
+
+
 # --- The popup window ------------------------------------------------------
 
 PANELS = {
     "network": NetworkPanel,
     "bluetooth": BluetoothPanel,
     "sound": SoundPanel,
+    "display": DisplayPanel,
 }
 
 
