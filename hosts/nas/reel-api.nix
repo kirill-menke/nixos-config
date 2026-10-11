@@ -23,6 +23,21 @@
 let
   # The static LAN address (adguard.nix pins enp2s0).
   lanAddr = (lib.head config.networking.interfaces.enp2s0.ipv4.addresses).address;
+
+  # Names clients may reach it by (IP literals and localhost always work):
+  # MagicDNS / LAN short name, avahi (default.nix), AdGuard's .lan zone
+  # (adguard.nix), and VibeReel web (vibereel-web.nix), via the LAN listener
+  # or the tunnel.
+  publicHosts = [
+    "nas"
+    "nas.local"
+    "nas.lan"
+    "vr.kirill.es"
+  ];
+  # Plus the tailnet origin the phone app is served from (vibereel-phone.nix):
+  # nas.<tailnet>.ts.net names the tailnet, which this public repo must never
+  # hold in plain text, so it comes from sops (secrets/reel-api.yaml).
+  tailnetHost = config.sops.placeholder."reel-api/tailnet-host";
 in
 {
   imports = [ inputs.reel-api.nixosModules.default ];
@@ -39,18 +54,8 @@ in
       lanAddr
     ];
 
-    # Names clients may reach it by (IP literals and localhost always work):
-    # MagicDNS / LAN short name, avahi (default.nix), AdGuard's .lan zone
-    # (adguard.nix), and the tailnet origin the phone app is served from
-    # (vibereel-phone.nix; the same name finance.nix uses).
-    allowedHosts = [
-      "nas"
-      "nas.local"
-      "nas.lan"
-      "nas.taila639ad.ts.net"
-      # VibeReel web (vibereel-web.nix), via the LAN listener or the tunnel.
-      "vr.kirill.es"
-    ];
+    # Without the tailnet name; the full list arrives at runtime (below).
+    allowedHosts = publicHosts;
 
     # qBittorrent sits inside the ProtonVPN namespace (vpn.nix); from this
     # host its WebUI answers at the namespace address, not loopback.
@@ -66,6 +71,22 @@ in
     # Without it the unit fails to start -- deliberate and visible.
     environmentFile = "${config.nas.secretsDir}/reel-api.env";
   };
+
+  # The full host list, tailnet name included, rendered by sops at activation.
+  # An EnvironmentFile beats the module's Environment=, so this replaces the
+  # public list above. No "-": a missing file stops the start rather than
+  # running without the phone app's origin.
+  sops.secrets."reel-api/tailnet-host" = {
+    sopsFile = ../../secrets/reel-api.yaml;
+    key = "tailnet-host";
+  };
+  sops.templates."reel-api-hosts.env" = {
+    content = "REEL_API_ALLOWED_HOSTS=${lib.concatStringsSep "," (publicHosts ++ [ tailnetHost ])}\n";
+    restartUnits = [ "reel-api.service" ];
+  };
+  systemd.services.reel-api.serviceConfig.EnvironmentFile = [
+    config.sops.templates."reel-api-hosts.env".path
+  ];
 
   # The rename's secrets half: the module's reel-api-migrate (which runs once
   # before reel-api starts and moves the old state/cache dirs) also renames
