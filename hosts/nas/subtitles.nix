@@ -7,10 +7,11 @@
 # subtitles free, rendered client-side. This keeps that true for anything new
 # without you having to think about it.
 #
-# Event-driven rather than polled: a recursive inotify watch triggers the fetch
-# within seconds of a file landing, so a new film has subtitles by the time you
-# sit down. The daily timer is only a backstop for anything that slipped past
-# the watcher (e.g. files added while it was restarting).
+# Triggered as soon as a file lands, so a new film has subtitles by the time
+# you sit down: a recursive inotify watch sees copies and moves within seconds,
+# and a five-minute poll sees the Radarr and Sonarr imports the watch misses.
+# The daily timer is only a backstop for anything that slipped past both
+# (e.g. files added while the box was off).
 #
 {
   config,
@@ -30,7 +31,11 @@ let
     builtins.readFile ./strip-subtitles.py
   );
 
-  # Both jobs are oneshots that run as jellyfin, inspect the library with
+  prewarmSubtitles = pkgs.writers.writePython3Bin "prewarm-subtitles" { flakeIgnore = [ "E501" ]; } (
+    builtins.readFile ./prewarm-subtitles.py
+  );
+
+  # The jobs are oneshots that run as jellyfin, inspect the library with
   # ffprobe/ffmpeg, write nothing but files next to the media, and yield to
   # whatever is playing. Only what differs between them is passed in.
   libraryJob =
@@ -41,10 +46,11 @@ let
       timeout,
       nice,
       after ? [ ],
+      onSuccess ? [ ],
       extraServiceConfig ? { },
     }:
     {
-      inherit description after;
+      inherit description after onSuccess;
 
       path = [
         pkgs.ffmpeg-headless
@@ -147,18 +153,71 @@ in
       # Asked which titles are anime (Japanese audio first instead of English).
       "SONARR_URL=http://127.0.0.1:8989"
       "RADARR_URL=http://127.0.0.1:7878"
+      # Asked what is playing; the sweep waits until nothing is.
+      "JELLYFIN_URL=http://127.0.0.1:8096"
     ];
 
     # Remuxing 4K files is pure I/O, so it gets the lower priority of the two.
+    # Waiting out a film counts against the timeout too.
     timeout = "6h";
     nice = 15;
 
-    # The *arr API keys, straight from each app's config.xml -- the unit runs
-    # as jellyfin, which cannot read /var/lib/{sonarr,radarr} itself.
-    extraServiceConfig.LoadCredential = [
-      "sonarr.xml:/var/lib/sonarr/.config/NzbDrone/config.xml"
-      "radarr.xml:/var/lib/radarr/.config/Radarr/config.xml"
+    # A rewritten file has lost its extracted subtitles in Jellyfin.
+    onSuccess = [ "prewarm-subtitles.service" ];
+
+    extraServiceConfig = {
+      # The *arr API keys, straight from each app's config.xml -- the unit runs
+      # as jellyfin, which cannot read /var/lib/{sonarr,radarr} itself.
+      LoadCredential = [
+        "sonarr.xml:/var/lib/sonarr/.config/NzbDrone/config.xml"
+        "radarr.xml:/var/lib/radarr/.config/Radarr/config.xml"
+      ];
+      # JELLYFIN_TOKEN. Optional ("-"): without it the sweep runs, unwaiting.
+      EnvironmentFile = "-${credsFile}";
+    };
+  };
+
+  #############################################################################
+  # The prewarm job
+  #############################################################################
+  #
+  # Jellyfin extracts a file's embedded subtitles on the first request for any
+  # of them: one ffmpeg pass over the whole file while the player waits. On
+  # this pool that was nine minutes for a 28 GB remux, and the pass starved
+  # the film's own stream off the same disk (Spider-Man, 2026-10-10). This
+  # makes the request ahead of time, for recently changed files, and only
+  # while nothing is playing.
+
+  systemd.services.prewarm-subtitles = libraryJob {
+    description = "Have Jellyfin extract new files' embedded subtitles before anyone plays them";
+    exec = prewarmSubtitles;
+
+    # After them, never alongside: strip rewrites files (new work for this
+    # job), and all three read the library off the one disk.
+    after = [
+      "strip-subtitles.service"
+      "fetch-subtitles.service"
     ];
+
+    environment = [
+      "JELLYFIN_URL=http://127.0.0.1:8096"
+      # Older files still extract on first play. A whole-library sweep is
+      # ALL=1, by hand and overnight: it reads every file, ~9 h on this pool.
+      "WINDOW_DAYS=3"
+    ];
+
+    # Waiting out a film counts against this too.
+    timeout = "12h";
+    nice = 10;
+
+    extraServiceConfig = {
+      # JELLYFIN_TOKEN, required here (optional for fetch).
+      EnvironmentFile = credsFile;
+      # What has been warmed, by size and mtime.
+      StateDirectory = "prewarm-subtitles";
+      # It only stats the library; Jellyfin's ffmpeg does the reading.
+      ReadWritePaths = [ ];
+    };
   };
 
   #############################################################################
@@ -207,8 +266,57 @@ in
     '';
   };
 
+  # The watcher above saw neither Spider-Man nor Gone Girl arrive
+  # (2026-10-10). Radarr and Sonarr put an import into a folder they create a
+  # moment before, often before inotifywait has added its watch there, and a
+  # hardlink import raises no event the watch uses anyway. Either way the
+  # import sets the file's ctime (measured: to the second of Radarr's
+  # "Assigning file"), so imports are found by polling for that. Metadata
+  # only, the tree is in ARC: nothing to it.
+  #
+  # Strip's own rewrites are new files too, so each one brings one more sweep
+  # that finds nothing to do, as with the watcher.
+  systemd.services.subtitle-poll = {
+    description = "Start subtitle stripping and fetching for newly imported library files";
+    after = [ "zfs-mount.service" ];
+    path = [
+      pkgs.coreutils
+      pkgs.findutils
+      pkgs.systemd
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      StateDirectory = "subtitle-poll";
+    };
+    script = ''
+      stamp="$STATE_DIRECTORY/last-run"
+      # Taken before the scan, so a file linked during it is seen next time.
+      now=$(date +%s)
+      if [ -e "$stamp" ] && [ -n "$(find ${mediaRoot} -name '.*' -prune -o \
+          \( -name '*.mkv' -o -name '*.mp4' \) -cnewer "$stamp" -print -quit)" ]; then
+        systemctl start --no-block strip-subtitles.service fetch-subtitles.service
+      fi
+      touch -d "@$now" "$stamp"
+    '';
+  };
+
+  systemd.timers.subtitle-poll = {
+    description = "Look for newly imported library files every five minutes";
+    wantedBy = [ "timers.target" ];
+    timerConfig.OnCalendar = "*:0/5";
+  };
+
   systemd.timers.fetch-subtitles = dailyBackstop "Daily backstop for subtitle fetching";
   systemd.timers.strip-subtitles = dailyBackstop "Daily backstop for subtitle stripping";
+
+  # Strip's success starts prewarm, but a new file may not be in Jellyfin yet
+  # then, and a rewritten one not rescanned -- both are left for a later run,
+  # which this provides. A run with nothing new is one /Items query.
+  systemd.timers.prewarm-subtitles = {
+    description = "Look for new library files to prewarm subtitles for";
+    wantedBy = [ "timers.target" ];
+    timerConfig.OnCalendar = "*:0/15";
+  };
 
   #############################################################################
   # Credentials

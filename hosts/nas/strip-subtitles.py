@@ -36,7 +36,8 @@ remux is probed and shown to have the same video and audio stream counts, the
 expected subtitle count, and a duration within a second of the original. Any
 mismatch leaves the original in place and moves on.
 
-Run by strip-subtitles.timer and the library watcher (see subtitles.nix).
+Run by strip-subtitles.timer, the library watcher and the import poll
+(see subtitles.nix).
 Idempotent: a file with nothing to drop and English audio already first is
 skipped without being rewritten,
 which is also what stops the watcher from looping on its own output.
@@ -49,6 +50,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import urllib.request
 
 ROOT = os.environ.get("MEDIA_ROOT", "/tank/data/media")
@@ -74,12 +76,51 @@ ARRS = [("sonarr", os.environ.get("SONARR_URL", ""), "series"),
 DRY_RUN = bool(os.environ.get("DRY_RUN", ""))
 # Restrict to a single file, for trying this out before a full sweep.
 ONLY = os.environ.get("ONLY", "")
+# Asked before every file: a rewrite reads and writes the whole file on the
+# one disk (13 minutes for a 28 GB film, 2026-10-11) and then swaps it under
+# whoever is playing it, and even the probe reads deep into a file. Since the
+# sweep also runs minutes after an import -- exactly when people start the
+# new film -- it waits until nothing plays. Without a token it cannot ask and
+# does not wait.
+JELLYFIN = os.environ.get("JELLYFIN_URL", "")
+JF_TOKEN = os.environ.get("JELLYFIN_TOKEN", "")
+POLL_SECONDS = 60
 
 EXTS = (".mkv",)
 
 
 def log(msg):
     print(msg, flush=True)
+
+
+def playing():
+    """What Jellyfin is playing right now, as "user: title"; [] if it cannot say."""
+    if not (JELLYFIN and JF_TOKEN):
+        return []
+    r = urllib.request.Request(f"{JELLYFIN}/Sessions?activeWithinSeconds=960")
+    r.add_header("Authorization",
+                 f'MediaBrowser Token="{JF_TOKEN}", Client="strip-subtitles", '
+                 f'Device="nas", DeviceId="strip-subtitles", Version="1.0"')
+    try:
+        with urllib.request.urlopen(r, timeout=30) as f:
+            sessions = json.load(f)
+    except (OSError, ValueError) as e:
+        log(f"  ! cannot ask Jellyfin what is playing ({e}); not waiting")
+        return []
+    # Sessions idle for 16 minutes are ghosts (a TV switched off mid-film).
+    return [f"{s.get('UserName', '?')}: {s['NowPlayingItem'].get('Name', '?')}"
+            for s in sessions if s.get("NowPlayingItem")]
+
+
+def wait_until_idle():
+    waited = False
+    while now := playing():
+        if not waited:
+            log(f"waiting for playback to stop ({', '.join(now)})")
+            waited = True
+        time.sleep(POLL_SECONDS)
+    if waited:
+        log("nothing playing any more, going on")
 
 
 def probe(path):
@@ -330,6 +371,8 @@ def main():
     anime = anime_folders()
     changed = dropped_total = skipped = failed = audio_fixed = 0
     for path in files:
+        if not DRY_RUN:
+            wait_until_idle()
         info = probe(path)
         if info is None:
             failed += 1
