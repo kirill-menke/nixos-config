@@ -156,6 +156,12 @@ entry {
     margin: 0 10px 4px 46px;
 }
 
+/* The theme pads a fine-tuning scale (knob pressed and held) 1px less on
+   each side, which made the whole card jump; pin one size for both. */
+scale {
+    padding: 17px 12px;
+    min-height: 2px;
+}
 scale trough {
     background-color: #45475a;
     background-image: none;
@@ -227,8 +233,22 @@ def label(text, *classes, xalign=0.0, ellipsize=None):
     return lab
 
 
+def hand(widget):
+    """Hand pointer while over `widget`; GTK3 CSS has no `cursor`. Set on
+    the toplevel, which the widget's own input window inherits it from."""
+    def set_cursor(w, _event, name):
+        win = w.get_toplevel().get_window()
+        if win is not None:
+            win.set_cursor(Gdk.Cursor.new_from_name(w.get_display(), name)
+                           if name else None)
+        return False
+    widget.connect("enter-notify-event", set_cursor, "pointer")
+    widget.connect("leave-notify-event", set_cursor, None)
+    return widget
+
+
 def button(child, *classes):
-    btn = Gtk.Button()
+    btn = hand(Gtk.Button())
     btn.set_relief(Gtk.ReliefStyle.NONE)
     btn.set_can_focus(False)
     for cls in classes:
@@ -491,7 +511,7 @@ class NetworkPanel(Panel):
     def _wireless_section(self):
         head = Gtk.Box(spacing=8)
         head.pack_start(label("Wireless", "seclabel"), True, True, 0)
-        self.wifi_switch = Gtk.Switch()
+        self.wifi_switch = hand(Gtk.Switch())
         self.wifi_switch.set_valign(Gtk.Align.CENTER)
         head.pack_end(self.wifi_switch, False, False, 0)
         self.pack_start(head, False, False, 0)
@@ -501,6 +521,7 @@ class NetworkPanel(Panel):
         self.pack_start(self.wifi, False, False, 0)
         self.wifi_status = {}   # ssid -> (status text, is_error)
         self.password_for = None
+        self.radio_target = None  # like BluetoothPanel.power_target
         self.saved = saved_ssids()
         self.nets = wifi_networks(run(*WIFI_LIST, "--rescan", "no"))
         self.scanning = False
@@ -513,15 +534,15 @@ class NetworkPanel(Panel):
         for child in self.wifi.get_children():
             child.destroy()
         on = run("nmcli", "radio", "wifi").strip() == "enabled"
+        if self.radio_target is not None:
+            if on == self.radio_target:
+                self.radio_target = None
+            else:
+                on = self.radio_target
         with self.wifi_switch.handler_block(self._radio_id):
             self.wifi_switch.set_active(on)
-        if not on:
-            text = "Wi-Fi is off"
-        elif not self.nets:
+        if on and not self.nets:
             text = "Scanning…" if self.scanning else "No networks found"
-        else:
-            text = None
-        if text:
             self.wifi.pack_start(label(text, "empty"), False, False, 0)
         for net in self.nets if on else []:
             ssid = net["ssid"]
@@ -603,13 +624,15 @@ class NetworkPanel(Panel):
         self.refresh()  # the connection and IPs above may have changed
 
     def _on_radio(self, switch, _pspec):
-        state = "on" if switch.get_active() else "off"
+        self.radio_target = switch.get_active()
+        state = "on" if self.radio_target else "off"
         run_async(self._radio_done, "nmcli", "radio", "wifi", state)
 
-    def _radio_done(self, _ok, _out, _err):
+    def _radio_done(self, ok, _out, _err):
         if self.dead:
             return
-        if self.wifi_switch.get_active():
+        target, self.radio_target = self.radio_target, None
+        if ok and target:
             self._rescan()
         self.fill_wifi()
 
@@ -661,7 +684,8 @@ class BluetoothPanel(Panel):
         super().__init__(app)
         self.pending = {}   # device path -> (status text, is_error)
         self.power_error = None
-        self.switch = Gtk.Switch()
+        self.power_target = None  # Powered value asked for, until reported
+        self.switch = hand(Gtk.Switch())
         self.switch.set_valign(Gtk.Align.CENTER)
         self.header.pack_end(self.switch, False, False, 0)
         self._switch_id = self.switch.connect("notify::active",
@@ -689,6 +713,15 @@ class BluetoothPanel(Panel):
         adapters = self._proxies("org.bluez.Adapter1")
         adapter = adapters[0] if adapters else None
         powered = bool(prop(adapter, "Powered", False))
+        # BlueZ sends a burst of property changes while it powers up or
+        # down; rebuilding from those would yank the switch back to the old
+        # state and forth again, so it stays where it was put until BlueZ
+        # reports the new state (or gives up, see _power_done).
+        if self.power_target is not None:
+            if powered == self.power_target:
+                self.power_target = None
+            else:
+                powered = self.power_target
         with self.switch.handler_block(self._switch_id):
             self.switch.set_active(powered)
         self.switch.set_sensitive(adapter is not None)
@@ -753,8 +786,9 @@ class BluetoothPanel(Panel):
         adapters = self._proxies("org.bluez.Adapter1")
         if not adapters:
             return
+        self.power_target = switch.get_active()
         args = GLib.Variant("(ssv)", ("org.bluez.Adapter1", "Powered",
-                                      GLib.Variant("b", switch.get_active())))
+                                      GLib.Variant("b", self.power_target)))
         adapters[0].call("org.freedesktop.DBus.Properties.Set", args,
                          Gio.DBusCallFlags.NONE, 5000, None,
                          self._power_done, None)
@@ -765,7 +799,16 @@ class BluetoothPanel(Panel):
             self.power_error = None
         except GLib.Error as err:
             self.power_error = short_error(err)
+            self.power_target = None  # show the real state again
+        else:
+            # Normally cleared by fill() once BlueZ reports the new state.
+            GLib.timeout_add_seconds(3, self._forget_power_target)
         self.refresh()
+
+    def _forget_power_target(self):
+        self.power_target = None
+        self.refresh()
+        return GLib.SOURCE_REMOVE
 
 
 # --- Sound -----------------------------------------------------------------
@@ -832,6 +875,7 @@ class SoundPanel(Panel):
             Gtk.Orientation.HORIZONTAL, 0, 100, 1)
         self.scale.set_draw_value(False)
         self.scale.set_can_focus(False)
+        hand(self.scale)
         self.pct = label("", xalign=1.0)
         self.pct.set_width_chars(4)
         slider.pack_start(self.scale, True, True, 0)

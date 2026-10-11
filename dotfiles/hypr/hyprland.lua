@@ -81,8 +81,10 @@ end)
 -------------------------------
 
 -- See https://wiki.hypr.land/Configuring/Core/Environment-variables/
--- hl.env("XCURSOR_THEME", "Bibata-Modern-Classic")
--- hl.env("XCURSOR_SIZE", "48")
+-- XCursor twin of the hyprcursor theme (home.pointerCursor in home.nix), for
+-- clients that draw their own cursor: GTK3 apps such as waybar.
+hl.env("XCURSOR_THEME", "BreezeX-RosePine-Linux")
+hl.env("XCURSOR_SIZE", "24")
 hl.env("HYPRCURSOR_THEME", "rose-pine-hyprcursor")
 hl.env("HYPRCURSOR_SIZE", "24")
 -- iHD is the VAAPI driver for Gen8+ Intel graphics (Alder Lake UHD 730).

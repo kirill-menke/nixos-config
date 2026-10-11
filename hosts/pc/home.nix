@@ -831,6 +831,19 @@ in
     };
   };
 
+  # XCursor theme for apps that draw their own cursor, e.g. GTK3's hand
+  # pointer over waybar's popup buttons. Same Rose Pine design as the
+  # hyprcursor theme Hyprland draws (HYPRCURSOR_THEME in hyprland.lua);
+  # without an XCursor theme GTK3 falls back to libwayland's tiny built-in
+  # set, which has no hand. hyprland.lua exports the same XCURSOR_* vars.
+  home.pointerCursor = {
+    enable = true;
+    package = pkgs.rose-pine-cursor;
+    name = "BreezeX-RosePine-Linux";
+    size = 24;
+    gtk.enable = true;
+  };
+
   # Tell libadwaita apps to use the dark variant.
   dconf.settings."org/gnome/desktop/interface".color-scheme = "prefer-dark";
 
