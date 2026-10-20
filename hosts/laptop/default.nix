@@ -247,13 +247,6 @@
     usbutils
     usbmuxd
     ifuse
-
-    # SDDM theme
-    (catppuccin-sddm.override {
-      flavor = "mocha";
-      font = "JetBrainsMono Nerd Font";
-      fontSize = "12";
-    })
   ];
 
   fonts.packages = with pkgs; [
@@ -269,15 +262,12 @@
     enable = true;
   };
 
+  # Theme and package: modules/nixos/desktop.nix.
   services.displayManager.sddm = {
-    enable = true;
     # X11 greeter (not Wayland) so the Xsetup script below can place the login
     # screen on the external monitor when the laptop lid is closed. The themed
     # QML greeter renders identically under X11; the desktop session stays Wayland.
     wayland.enable = false;
-    theme = "catppuccin-mocha-mauve";
-    package = pkgs.kdePackages.sddm;
-    settings.Theme.CursorTheme = "Adwaita";
 
     # Runs as root before the greeter appears. If the lid is closed, turn the
     # internal panel off and drive the login screen on the first external output.

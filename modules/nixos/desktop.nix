@@ -1,5 +1,6 @@
 # The system side of the shared Hyprland desktop (modules/home/desktop.nix):
-# what its bar, cards and lock screen need from NixOS on every host.
+# its login screen, and what its bar, cards and lock screen need from NixOS on
+# every host.
 { pkgs, ... }:
 
 {
@@ -14,6 +15,27 @@
   };
   # Prefer the plain (non-UWSM) session, as before Hyprland 0.56.
   services.displayManager.defaultSession = "hyprland";
+
+  # Login screen: SDDM with the Catppuccin Mocha theme. The theme is Qt 6 QML,
+  # hence SDDM's Qt 6 build. Each host picks the greeter's display server
+  # (services.displayManager.sddm.wayland.enable). The theme's font comes from
+  # the hosts' fonts.packages (nerd-fonts.jetbrains-mono). The greeter finds
+  # cursor themes in the system profile only (XCURSOR_PATH from
+  # /etc/pam/environment, as the sddm user), hence Adwaita installed here.
+  services.displayManager.sddm = {
+    enable = true;
+    package = pkgs.kdePackages.sddm;
+    theme = "catppuccin-mocha-mauve";
+    settings.Theme.CursorTheme = "Adwaita";
+  };
+  environment.systemPackages = [
+    (pkgs.catppuccin-sddm.override {
+      flavor = "mocha";
+      font = "JetBrainsMono Nerd Font";
+      fontSize = "12";
+    })
+    pkgs.adwaita-icon-theme
+  ];
 
   # PAM entry so hyprlock (SUPER+L, the power card, hypridle) can check the
   # password; the package itself is in modules/home/desktop.nix.

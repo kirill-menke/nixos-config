@@ -331,7 +331,7 @@ in
     videoDrivers = [ "nvidia" ];
   };
 
-  services.displayManager.sddm.enable = true;
+  # SDDM and its Catppuccin theme: modules/nixos/desktop.nix.
   services.displayManager.sddm.wayland.enable = true;
 
   programs.nix-ld.enable = true;
