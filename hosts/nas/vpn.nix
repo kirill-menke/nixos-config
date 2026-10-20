@@ -15,16 +15,12 @@
 # not torrenting; confining Prowlarr too is possible later but means
 # repointing Sonarr/Radarr/reel-api at a mapped Prowlarr address as well.
 #
-# The WireGuard config is a secret (it contains the private key) and follows
-# the same out-of-band pattern as the other secrets on this box. Generate it at
+# The WireGuard config is a secret (it contains the private key), so the whole
+# file lives in sops as nas/protonvpn-wg-conf (secrets/nas.yaml). Generate it at
 # account.protonvpn.com -> Downloads -> WireGuard configuration: pick a P2P
 # server and enable the NAT-PMP (port forwarding) toggle -- proton-natpmp
-# below depends on it. Then, on the NAS:
-#
-#   install -m600 <downloaded>.conf /var/lib/nixos-secrets/protonvpn-wg.conf
-#
-# Without it the proton-* namespace units fail to start -- deliberate and
-# visible, same as reel-api's environmentFile.
+# below depends on it. Then paste the file into that key with
+# `sops secrets/nas.yaml`.
 #
 # Inbound peers arrive via Proton's NAT-PMP (proton-natpmp below). Being
 # connectable matters here because the swarms this box actually leeches from
@@ -44,9 +40,14 @@
   imports = [ inputs.vpn-confinement.nixosModules.default ];
 
   # Namespace names are capped at 7 characters (they become interface names).
+  sops.secrets."nas/protonvpn-wg-conf" = {
+    sopsFile = ../../secrets/nas.yaml;
+    restartUnits = [ "proton.service" ];
+  };
+
   vpnNamespaces.proton = {
     enable = true;
-    wireguardConfigFile = "${config.nas.secretsDir}/protonvpn-wg.conf";
+    wireguardConfigFile = config.sops.secrets."nas/protonvpn-wg-conf".path;
 
     # Non-connected subnets whose traffic into the namespace needs a return
     # route via the bridge: only the tailnet. Host-local processes (Sonarr,

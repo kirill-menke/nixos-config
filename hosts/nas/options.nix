@@ -25,7 +25,8 @@
       default = "/var/lib/nixos-secrets";
       description = ''
         Unmanaged, root-owned directory for secrets provisioned by hand on the
-        box -- this repo is public. Each module documents what it expects here.
+        box -- this repo is public. Prefer sops (secrets.nix), which survives a
+        reinstall; this is for anything not migrated yet.
       '';
     };
   };

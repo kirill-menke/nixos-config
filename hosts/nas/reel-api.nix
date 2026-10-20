@@ -61,15 +61,15 @@ in
     # host its WebUI answers at the namespace address, not loopback.
     qbittorrentUrl = "http://192.168.15.1:8080";
 
-    # PROWLARR_API_KEY lives here, off this (public) repo. Provision once:
-    #
-    #   install -d -m700 /var/lib/nixos-secrets
-    #   echo "PROWLARR_API_KEY=<key from /var/lib/private/prowlarr/config.xml>" \
-    #     > /var/lib/nixos-secrets/reel-api.env
-    #   chmod 600 /var/lib/nixos-secrets/reel-api.env
-    #
-    # Without it the unit fails to start -- deliberate and visible.
-    environmentFile = "${config.nas.secretsDir}/reel-api.env";
+    # PROWLARR_API_KEY=<key from /var/lib/private/prowlarr/config.xml>, from
+    # sops (nas/reel-api-env in secrets/nas.yaml). Without it the unit fails to
+    # start -- deliberate and visible.
+    environmentFile = config.sops.secrets."nas/reel-api-env".path;
+  };
+
+  sops.secrets."nas/reel-api-env" = {
+    sopsFile = ../../secrets/nas.yaml;
+    restartUnits = [ "reel-api.service" ];
   };
 
   # The full host list, tailnet name included, rendered by sops at activation.
@@ -87,18 +87,6 @@ in
   systemd.services.reel-api.serviceConfig.EnvironmentFile = [
     config.sops.templates."reel-api-hosts.env".path
   ];
-
-  # The rename's secrets half: the module's reel-api-migrate (which runs once
-  # before reel-api starts and moves the old state/cache dirs) also renames
-  # the old environment file, under the same rule -- only if the old one
-  # exists and the new one doesn't. mv keeps its 0600 mode and owner.
-  systemd.services.reel-api-migrate.script = lib.mkAfter ''
-    old=${config.nas.secretsDir}/leetx-api.env new=${config.nas.secretsDir}/reel-api.env
-    if [ -f "$old" ] && [ ! -e "$new" ]; then
-      mv -T "$old" "$new"
-      echo "moved $old -> $new"
-    fi
-  '';
 
   #############################################################################
   # One-time, after the first rebuild
