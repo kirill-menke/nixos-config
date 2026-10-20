@@ -8,8 +8,7 @@ Volume goes through the TV rather than mpv because the interesting audio path
 bitstreams TrueHD/Atmos: mpv hands the stream over untouched and cannot attenuate
 it, so the TV (which relays to the soundbar over eARC) owns the volume.  Absolute
 setVolume does work on this TV/soundbar pair even though soundOutput is
-"external_arc" -- verified 21 -> 25 -> 30 with the value reading back each time --
-so the remote can show a real slider and not just up/down steps.
+"external_arc" -- verified 21 -> 25 -> 30 with the value reading back each time.
 
 Usage:
     tv status              power state and current input
@@ -23,11 +22,9 @@ Usage:
     tv volume mute|unmute|toggle
     tv picture             print the current picture mode
     tv picture filmMaker   set it (what `play` does, so films are not smoothed)
-    tv serve               hold one connection open behind a unix socket
 """
 
 import asyncio
-import json
 import os
 import socket
 import sys
@@ -54,14 +51,9 @@ PICTURE_ENDPOINTS = (
     "com.webos.settingsservice/setSystemSettings",
 )
 
-RUNTIME = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
-BRIDGE_SOCKET = os.environ.get("TV_SOCKET", os.path.join(RUNTIME, "tv.sock"))
-# Long enough to cover a viewing session, short enough that a TV switched off
-# does not sit behind a dead socket for the rest of the day.
-IDLE_TIMEOUT = 300
 # How long a just-issued command's own reply outranks the subscription feed.
-# Without this a status poll landing mid-drag re-reads a not-yet-updated
-# tv_state and yanks the slider back under the finger.
+# Without this the reply to a set could re-read a not-yet-updated tv_state and
+# report the old value.
 COMMAND_WINS_FOR = 1.5
 
 
@@ -174,21 +166,11 @@ async def cmd_pc():
 
 
 # --------------------------------------------------------------------------
-# Volume bridge
+# Volume and picture mode
 # --------------------------------------------------------------------------
 
-class Bridge:
-    """One long-lived TV connection, shared by everything on the unix socket.
-
-    A cold SSAP connection costs ~0.4s.  That is fine for a button, but hopeless
-    for a slider being dragged; on a connection that is already open setVolume
-    round-trips in ~10ms.  So the connection is opened by the first request that
-    actually needs the TV and then held until it has been idle for a while.
-
-    Plain "state" requests deliberately never connect.  The remote polls status
-    once a second whenever its page is open, and if that poll dialled the TV,
-    an app left open would hammer a switched-off TV forever.
-    """
+class Session:
+    """One SSAP connection, carrying a single volume or picture-mode command."""
 
     def __init__(self):
         self.client = None
@@ -196,13 +178,11 @@ class Bridge:
         self.volume = None
         self.muted = None
         self.sound_output = None
-        self.last_use = 0.0
         self.last_command = 0.0
 
     async def ensure(self):
         """Return a live client, connecting or reconnecting as needed."""
         async with self.lock:
-            self.last_use = time.monotonic()
             if self.client is not None and self.client.is_connected():
                 return self.client
             self.client = None
@@ -243,8 +223,6 @@ class Bridge:
 
     async def act(self, req):
         cmd = req.get("cmd", "state")
-        if cmd == "state" and not req.get("connect"):
-            return self.snapshot()
         try:
             client = await self.ensure()
         except Exception as e:
@@ -257,11 +235,6 @@ class Bridge:
                 await self._step(client, int(req.get("delta", 0)))
             elif cmd == "picture":
                 return await self._picture(client, req.get("mode"))
-            elif cmd == "input":
-                # On the warm connection this is immediate, where a one-shot
-                # `tv input` pays for a fresh SSAP handshake first.
-                await client.set_input(str(req.get("value") or ""))
-                self.last_command = time.monotonic()
             elif cmd == "mute":
                 want = req.get("value", "toggle")
                 if want == "toggle":
@@ -273,7 +246,7 @@ class Bridge:
                 return self.snapshot(error=f"unknown command {cmd!r}")
         except Exception as e:
             # A connection that died between ensure() and here looks exactly
-            # like this; drop it so the next request reconnects.
+            # like this; drop it rather than try to disconnect it afterwards.
             self.client = None
             return self.snapshot(error=f"{type(e).__name__}: {e}")
         return self.snapshot()
@@ -325,82 +298,20 @@ class Bridge:
                 self.volume = got
         self.last_command = time.monotonic()
 
-    async def handle(self, reader, writer):
-        try:
-            line = await asyncio.wait_for(reader.readline(), timeout=5)
-            try:
-                req = json.loads(line)
-            except ValueError:
-                req = {}
-            resp = await self.act(req if isinstance(req, dict) else {})
-            writer.write((json.dumps(resp) + "\n").encode())
-            await writer.drain()
-        except (OSError, asyncio.TimeoutError):
-            pass
-        finally:
-            writer.close()
 
-    async def reaper(self):
-        while True:
-            await asyncio.sleep(30)
-            if self.client is None:
-                continue
-            if time.monotonic() - self.last_use < IDLE_TIMEOUT:
-                continue
-            async with self.lock:
-                client, self.client = self.client, None
-            try:
-                await client.disconnect()
-            except Exception:
-                pass
-
-
-def bridge_request(req, timeout=6):
-    """Ask a running `tv serve` for something.  None if it is not up."""
+async def tv_request(req):
+    """One command on a connection of its own."""
+    session = Session()
     try:
-        s = socket.socket(socket.AF_UNIX)
-        s.settimeout(timeout)
-        s.connect(BRIDGE_SOCKET)
-        s.sendall((json.dumps(req) + "\n").encode())
-        buf = b""
-        while b"\n" not in buf:
-            chunk = s.recv(65536)
-            if not chunk:
-                break
-            buf += chunk
-        s.close()
-        return json.loads(buf.split(b"\n")[0])
-    except (OSError, ValueError):
-        return None
-
-
-async def cmd_serve():
-    # A socket left behind by a killed daemon would make bind() fail; the
-    # runtime dir is user-only, so nothing else can be squatting on it.
-    try:
-        os.unlink(BRIDGE_SOCKET)
-    except FileNotFoundError:
-        pass
-    bridge = Bridge()
-    server = await asyncio.start_unix_server(bridge.handle, path=BRIDGE_SOCKET)
-    async with server:
-        await asyncio.gather(server.serve_forever(), bridge.reaper())
-    return 0
-
-
-async def volume_direct(req):
-    """The bridge is not running, so pay for a connection of our own."""
-    bridge = Bridge()
-    try:
-        return await bridge.act(dict(req, connect=True))
+        return await session.act(req)
     finally:
-        if bridge.client is not None:
-            await bridge.client.disconnect()
+        if session.client is not None:
+            await session.client.disconnect()
 
 
 def cmd_picture(arg):
     req = {"cmd": "picture"} if arg is None else {"cmd": "picture", "mode": arg}
-    resp = bridge_request(req) or asyncio.run(volume_direct(req))
+    resp = asyncio.run(tv_request(req))
     if not resp.get("ok"):
         print(f"tv: {resp.get('error') or 'picture mode unavailable'}", file=sys.stderr)
         return 1
@@ -413,7 +324,7 @@ def cmd_picture(arg):
 
 def cmd_volume(arg):
     if arg is None:
-        req = {"cmd": "state", "connect": True}
+        req = {"cmd": "state"}
     elif arg in ("mute", "unmute", "toggle"):
         req = {"cmd": "mute", "value": {"mute": True, "unmute": False}.get(arg, "toggle")}
     elif arg[0] in "+-" and arg[1:].isdigit():
@@ -424,7 +335,7 @@ def cmd_volume(arg):
         print(f"tv: bad volume argument {arg!r}", file=sys.stderr)
         return 2
 
-    resp = bridge_request(req) or asyncio.run(volume_direct(req))
+    resp = asyncio.run(tv_request(req))
     if not resp.get("ok"):
         print(f"tv: {resp.get('error') or 'volume unavailable'}", file=sys.stderr)
         return 1
@@ -448,8 +359,6 @@ def main():
         if action == "picture":
             # No argument reads it back, which is how to check the set worked.
             return cmd_picture(sys.argv[2] if len(sys.argv) > 2 else None)
-        if action == "serve":
-            return asyncio.run(cmd_serve())
         if action == "input":
             if len(sys.argv) < 3:
                 print("usage: tv input HDMI_1", file=sys.stderr)

@@ -209,10 +209,9 @@ let
   # which forces `vo/libmpv` (it overrides --mpv-vo=gpu-next), so its GTK
   # surface never requests an HDR colorspace.
   play = pkgs.writeShellScriptBin "play" ''
-    # Do not rely on the caller's PATH.  mpv-remote launches this from a
-    # systemd user service whose PATH is set for ffmpeg only, and without this
-    # setsid/timeout/find/sed are all missing, so play exits instantly while
-    # the launch still looks like it succeeded.
+    # Do not rely on the caller's PATH: without these, setsid/timeout/find/sed
+    # can be missing, and play exits instantly while the launch still looks
+    # like it succeeded.
     export PATH=${
       lib.makeBinPath [
         pkgs.coreutils
@@ -231,15 +230,16 @@ let
     SOCAT=${pkgs.socat}/bin/socat
     HYPRMON=${hypr-monitor}/bin/hypr-monitor
 
-    # Fixed path so mpv-remote (the phone remote) can find the running player.
-    # Every mpv started here gets it, including the plain non-TV paths.
+    # Fixed path so a later `play` can find the running player to hand it a new
+    # playlist or stop it.  Every mpv started here gets it, including the plain
+    # non-TV paths.
     RUNTIME="''${XDG_RUNTIME_DIR:-/tmp}"
-    SOCK="$RUNTIME/mpv-remote.sock"
+    SOCK="$RUNTIME/play.sock"
     IPC=(--input-ipc-server="$SOCK")
 
     # Who owns the TV right now.  Without this, a second `play` simply started a
-    # second mpv: both bound the same IPC socket, so the remote could only see
-    # and stop the newer one, both fought over the audio device, and -- worst --
+    # second mpv: both bound the same IPC socket, so only the newer one could be
+    # reached through it, both fought over the audio device, and -- worst --
     # the second wrapper captured the *movie* mode as the mode to restore, so
     # quitting left the desktop at 4K23.98.
     PIDFILE="$RUNTIME/play.pid"          # the wrapper that owns the display
@@ -272,11 +272,10 @@ let
     fi
 
     # Every argument that exists on disk is a media file; anything else is
-    # passed through to mpv untouched.  More than one is a playlist, which is
-    # how the remote queues up the rest of a season for autoplay.  The first
-    # one is what the output gets matched to -- episodes of a season share a
-    # frame rate, HDR type and audio codec, so probing them all would be work
-    # for nothing.
+    # passed through to mpv untouched.  More than one is a playlist, such as
+    # the rest of a season.  The first one is what the output gets matched to
+    # -- episodes of a season share a frame rate, HDR type and audio codec, so
+    # probing them all would be work for nothing.
     #
     # mpv happily takes a directory and plays it as a playlist, but ffprobe
     # cannot read one -- the probe then silently returns nothing and every
@@ -464,8 +463,8 @@ let
     timeout 40 ${tv}/bin/tv pc >/dev/null 2>&1 || true
 
     # Serialise from here to the moment mpv is up and the state files describe
-    # it.  Two taps in quick succession on the phone would otherwise both look
-    # at an empty $PIDFILE and both start a player.
+    # it.  Two launches in quick succession would otherwise both look at an
+    # empty $PIDFILE and both start a player.
     exec 9>"$LOCKFILE"
     flock -w 60 9 2>/dev/null || true
 
@@ -578,30 +577,6 @@ let
     wait $mpvpid
   '';
 
-  # Phone remote: serves a touch UI on the LAN and proxies it onto mpv's JSON
-  # IPC socket (the one `play` creates).  Add it to the iOS home screen and it
-  # opens fullscreen with its own icon -- the page carries the
-  # apple-mobile-web-app-* meta tags and serves its own PNG icon.
-  #
-  # It also browses remote file servers and pulls files down with curl.  Those
-  # are configured in ~/.config/mpv-remote/sources.json (mode 0600) rather than
-  # here on purpose: this file is rendered into /nix/store, which is world
-  # readable, and the sources carry passwords.  Format is a list of
-  # { id, name, url, user, password, dest } where dest is "shows" or "movies".
-  #
-  # This exists because the PC has no HDMI-CEC hardware: /sys/class/cec does
-  # not exist, and Intel desktop graphics do not implement a CEC adapter, so
-  # the TV's own remote physically cannot reach it without a USB-CEC dongle.
-  # W503 is the "line break before binary operator" rule, which contradicts
-  # W504 and current PEP 8 guidance; E501 is long lines in the embedded HTML.
-  mpv-remote = pkgs.writers.writePython3Bin "mpv-remote" {
-    flakeIgnore = [
-      "E501"
-      "E226"
-      "W503"
-    ];
-  } (builtins.readFile ../../dotfiles/mpv-remote/server.py);
-
   # `tv` -- drive the LG C4 over the network (webOS SSAP).  The TV cannot send
   # its remote's key presses to the PC (webOS exposes no such endpoint, and the
   # Magic Remote is 2.4 GHz RF straight to the TV), but this direction works,
@@ -609,7 +584,7 @@ let
   tv = pkgs.writers.writePython3Bin "tv" {
     libraries = [ pkgs.python3Packages.aiowebostv ];
     flakeIgnore = [ "E501" ];
-  } (builtins.readFile ../../dotfiles/mpv-remote/tv.py);
+  } (builtins.readFile ../../dotfiles/tv/tv.py);
 
   # Shadow the packaged Celluloid launcher so the normal app icon uses the
   # wrapper.  Derived from the upstream file with sed rather than rewritten by
@@ -746,7 +721,6 @@ in
     celluloid
     celluloid-auto # sink-aware Celluloid launcher, see the let block above
     play # smart movie launcher: matches mode, HDR and audio to the source
-    mpv-remote # phone remote (systemd user service below)
     tv # LG TV network control (wake + input switching)
     obs-studio # screen recording (Wayland via PipeWire portal)
     kdePackages.kdenlive # video editing: keyframed zoom/pan post-production
@@ -929,66 +903,6 @@ in
       # No client-side decoration on the floating playback window.
       border = "no";
     };
-  };
-
-  # Phone remote, always up so the page is there whenever you pick up the
-  # phone.  It is cheap when idle: it only talks to mpv when a request arrives,
-  # and reports "not running" when there is no socket.
-  systemd.user.services.mpv-remote = {
-    Unit.Description = "Phone remote for mpv";
-    Service = {
-      ExecStart = "${mpv-remote}/bin/mpv-remote";
-      Restart = "on-failure";
-      RestartSec = 5;
-      # ffprobe/ffmpeg for library metadata and thumbnails, curl for browsing
-      # and downloading from remote sources, plus the ordinary shell tools --
-      # this PATH *replaces* the inherited one, so listing only ffmpeg here left
-      # `play` without setsid/timeout/find/sed and it died on launch while still
-      # reporting success.
-      Environment = [
-        "PATH=${
-          lib.makeBinPath [
-            pkgs.ffmpeg
-            pkgs.curl
-            pkgs.coreutils
-            pkgs.util-linux
-            pkgs.findutils
-            pkgs.gnused
-          ]
-        }"
-        "PLAY_BIN=${play}/bin/play"
-        "TV_BIN=${tv}/bin/tv"
-
-        # The library now lives on the NAS and is mounted here over NFS. Point
-        # the remote at that rather than the old local ~/Videos copies, so
-        # there is a single source of truth -- otherwise a film added on the
-        # NAS never appears on the phone, and deleting the local copies to
-        # reclaim the disk silently empties the library.
-        #
-        # /mnt/media is an x-systemd.automount, so the first scan triggers the
-        # mount. If the NAS is down the mount fails `soft` after ~15s and the
-        # library simply reads as empty rather than hanging forever.
-        "MPV_LIBRARY=/mnt/media/movies"
-        "MPV_SHOWS=/mnt/media/shows"
-      ];
-    };
-    Install.WantedBy = [ "default.target" ];
-  };
-
-  # Volume bridge.  The remote's slider needs the TV's own volume (TrueHD is
-  # bitstreamed, so mpv passes the audio through untouched and cannot attenuate
-  # it), and a fresh SSAP connection costs ~370ms -- far too slow to drag
-  # against.  This holds one connection open behind a unix socket, which brings
-  # a setVolume down to ~10ms.  It only dials the TV when something asks it to,
-  # never for a plain status read, and hangs up after five idle minutes.
-  systemd.user.services.tv-bridge = {
-    Unit.Description = "LG TV volume bridge for the mpv remote";
-    Service = {
-      ExecStart = "${tv}/bin/tv serve";
-      Restart = "always";
-      RestartSec = 5;
-    };
-    Install.WantedBy = [ "default.target" ];
   };
 
   # Make the normal "Celluloid" launcher entry use the sink-aware wrapper, so

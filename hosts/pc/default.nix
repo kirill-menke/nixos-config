@@ -493,17 +493,13 @@ in
   # networking.firewall.allowedTCPPorts = [ ... ];
   # networking.firewall.allowedUDPPorts = [ ... ];
   networking.firewall.enable = true;
-  # mpv phone remote (see mpv-remote in home.nix).  Scoped to the wired LAN
-  # interface rather than opened globally -- the remote has no authentication,
-  # so anyone who can reach the port can control playback.  (Interface-scoped
-  # rather than `extraInputRules`, which is nftables-only and this host still
-  # uses the iptables backend.)
-  #
   # 7000/7001/7100 TCP + 6000/6001/7011 UDP: UxPlay AirPlay mirroring, which
   # uses these fixed ports only when started with `-p` (default is random).
+  # Scoped to the wired LAN interface rather than opened globally.
+  # (Interface-scoped rather than `extraInputRules`, which is nftables-only and
+  # this host still uses the iptables backend.)
   networking.firewall.interfaces.${lanIf} = {
     allowedTCPPorts = [
-      8322
       7000
       7001
       7100
@@ -516,11 +512,11 @@ in
   };
 
   # Wake-on-LAN on the wired NIC, so a suspended box can be brought back from
-  # the phone before starting a film.  The PCI device had wakeup disabled, so
+  # the phone (`wake-pc` on the NAS).  The PCI device had wakeup disabled, so
   # nothing could reach it in S3 at all.
   #
   # `wol g` is magic packet only.  It used to be `wol ug`, adding unicast so the
-  # phone's connection attempt to 8322 was itself the wake trigger and nothing
+  # phone's connection attempt was itself the wake trigger and nothing
   # had to send a separate magic packet.  That cost more than it was worth: the
   # NIC cannot tell that packet from any other addressed to this host, and this
   # LAN carries ~18 packets/s of ordinary traffic to us, so S3 never survived
