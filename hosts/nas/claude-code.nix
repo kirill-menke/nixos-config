@@ -29,7 +29,12 @@
 # Credentials land under ~kirill/.claude; the units below reuse them. Until
 # then the units crash-loop harmlessly (30s backoff).
 #
-{ lib, pkgs, ... }:
+{
+  lib,
+  pkgs,
+  inputs,
+  ...
+}:
 let
   # One entry per project; each becomes /home/kirill/projects/<name> and a
   # claude-remote-<name>.service. Add a name here, rebuild, and a new session
@@ -50,13 +55,14 @@ let
   sessions = lib.genAttrs projects projectDir // {
     home = "/home/kirill";
   };
+
+  # Claude Code from llm-agents, as on the PC and the laptop. It is unfree, but
+  # llm-agents evaluates it in its own nixpkgs, so this host's nixpkgs still
+  # allows no unfree packages.
+  claudeCode = inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system}.claude-code;
 in
 {
-  # This host otherwise allows no unfree packages; scope the exception to
-  # exactly this one instead of flipping allowUnfree globally.
-  nixpkgs.config.allowUnfreePredicate = pkg: builtins.elem (lib.getName pkg) [ "claude-code" ];
-
-  environment.systemPackages = [ pkgs.claude-code ];
+  environment.systemPackages = [ claudeCode ];
 
   systemd.tmpfiles.rules = [
     "d /home/kirill/projects 0755 kirill users -"
@@ -78,7 +84,7 @@ in
         WorkingDirectory = dir;
         Environment = "HOME=/home/kirill";
         ExecStart =
-          "${pkgs.claude-code}/bin/claude remote-control"
+          "${claudeCode}/bin/claude remote-control"
           + " --permission-mode bypassPermissions"
           + " --name nas:${p}";
 

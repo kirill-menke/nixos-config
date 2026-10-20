@@ -8,17 +8,14 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # Claude Code and Orca IDE. Both are bot-updated daily and served from
-    # cache.numtide.com (substituter configured in hosts/pc/default.nix); Orca
-    # is not in nixpkgs and ships no flake of its own.
+    # Claude Code on every host, plus Orca IDE. Both are bot-updated daily and
+    # served from cache.numtide.com (substituter on the PC and the laptop; the
+    # NAS is built on the PC); Orca is not in nixpkgs and ships no flake of
+    # its own. No `inputs.nixpkgs.follows` on purpose: the cache only has
+    # builds against llm-agents' own nixpkgs (`llm-agents/nixpkgs` in the lock).
     llm-agents.url = "github:numtide/llm-agents.nix";
 
-    # The laptop's Claude Code (overlay, pkgs.claude-code) and Firefox
-    # add-ons (hosts/laptop/home-shared.nix).
-    claude-code = {
-      url = "github:sadjow/claude-code-nix";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    # The laptop's Firefox add-ons (hosts/laptop/home-shared.nix).
     firefox-addons = {
       url = "gitlab:rycee/nur-expressions?dir=pkgs/firefox-addons";
       inputs.nixpkgs.follows = "nixpkgs";

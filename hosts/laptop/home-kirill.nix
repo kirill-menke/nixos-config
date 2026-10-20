@@ -27,14 +27,16 @@ let
       - bedrock-mantle
   '';
 
+  claudeCode = inputs.llm-agents.packages.x86_64-linux.claude-code;
+
   # Claude Code on Bedrock EU by default for Kirill (the other users keep the
   # direct API). Claude Code turns a Bedrock default id's us. prefix into the
   # AWS_REGION's (eu-central-1 -> eu.), so the haiku subagents stay in the EU
   # as well. `claude-direct` below runs the unwrapped binary on the direct API.
   # The version stays in the name: the home-manager module reads it.
   claudeBedrock = pkgs.symlinkJoin {
-    name = "claude-code-bedrock-${pkgs.claude-code.version}";
-    paths = [ pkgs.claude-code ];
+    name = "claude-code-bedrock-${claudeCode.version}";
+    paths = [ claudeCode ];
     nativeBuildInputs = [ pkgs.makeWrapper ];
     postBuild = ''
       wrapProgram $out/bin/claude \
@@ -44,7 +46,7 @@ let
         --set ANTHROPIC_DEFAULT_OPUS_MODEL 'eu.anthropic.claude-opus-5-5[1m]' \
         --set ANTHROPIC_DEFAULT_SONNET_MODEL 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0[1m]'
     '';
-    inherit (pkgs.claude-code) meta;
+    inherit (claudeCode) meta;
   };
 in
 {
@@ -93,7 +95,7 @@ in
       # model ids. Unsets the Bedrock env in case it runs inside a `claude` shell.
       (pkgs.writeShellScriptBin "claude-direct" ''
         unset CLAUDE_CODE_USE_BEDROCK ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL
-        exec ${pkgs.claude-code}/bin/claude "$@"
+        exec ${claudeCode}/bin/claude "$@"
       '')
       # stablyai orca ADE (same source as vibe), with three asar patches:
       # - stablyai/orca#25256 backported so plugin panels can call their own worker

@@ -552,7 +552,7 @@
   programs.claude-code = {
     enable = true;
     # home-kirill.nix swaps in a Bedrock EU wrapper for Kirill.
-    package = lib.mkDefault pkgs.claude-code;
+    package = lib.mkDefault inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system}.claude-code;
   };
   programs.awscli.enable = true;
   programs.direnv = {
@@ -662,7 +662,8 @@
       # and christoph (their sudo rebuilds Kirill's checkout).
       rebuild = "sudo nixos-rebuild switch --flake /home/kirill/.config/nixos#laptop";
       update = "nix flake update --flake /home/kirill/.config/nixos && sudo nixos-rebuild switch --flake /home/kirill/.config/nixos#laptop";
-      update-claude = "nix flake update claude-code --flake /home/kirill/.config/nixos && sudo nixos-rebuild switch --flake /home/kirill/.config/nixos#laptop";
+      # Claude Code comes from llm-agents, so this also bumps omp, Orca and t3code.
+      update-claude = "nix flake update llm-agents --flake /home/kirill/.config/nixos && sudo nixos-rebuild switch --flake /home/kirill/.config/nixos#laptop";
       cc = "claude-commit";
       ccpr = "create-pr";
       ccm = "merge-into";
