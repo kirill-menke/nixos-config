@@ -97,7 +97,6 @@
             "class<(discord|vesktop|webcord)>": "󰙯",
             "class<(blender|org\\.blender\\.blender)>": "󰂫",
             "class<(steam|steam_app_\\d+)>": "󰓓", // also Steam's games
-            "class<affinity\\.exe>": "󰫨", // md-vector_bezier; Affinity runs in Wine
             "class<(krita|org\\.kde\\.krita)>": "", // nf-linux-krita
             "class<(signal|signal-desktop)>": "󰍩", // md-message_text
             "class<(thunderbird|org\\.mozilla\\.thunderbird)>": "", // nf-linux-thunderbird

@@ -66,7 +66,6 @@ in
       trash-cli # rm alias below
     ])
     ++ [
-      pkgs.affinity-v3 # via affinity-nix overlay (flake.nix), so allowUnfree applies
       # oh-my-pi coding agent, pointed at Bedrock via the Heidenhain `research` SSO profile
       # (EU region only: the org SCP denies Bedrock outside the EU). --set-default so a
       # caller can still override AWS_PROFILE/AWS_REGION per run.

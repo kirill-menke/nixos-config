@@ -484,9 +484,6 @@ hl.window_rule({
     no_initial_focus = true,
 })
 
--- Start affinity as a tile window
-hl.window_rule({ match = { class = "^(affinity.exe)$" }, tile = true })
-
 -- Dictionary lookup modal (SUPER+T); border matches the wofi launcher
 hl.window_rule({
     match        = { class = "^(dict-modal)$" },

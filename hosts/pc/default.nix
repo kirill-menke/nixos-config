@@ -107,7 +107,6 @@ in
   nix.optimise.automatic = true;
 
   nixpkgs.overlays = [
-    inputs.affinity-nix.overlays.default
     (_final: prev: {
       python3 = prev.python3.override {
         packageOverrides = _pyfinal: pyprev: {

@@ -779,9 +779,6 @@ in
     catppuccin-cursors
     rose-pine-hyprcursor
     noto-fonts-color-emoji
-
-    # From the affinity-nix overlay (default.nix)
-    affinity-v3
   ];
 
   # GTK theming — Catppuccin Mocha (Blue accent).

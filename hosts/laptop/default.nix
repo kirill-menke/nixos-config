@@ -17,7 +17,6 @@
 
   nixpkgs.overlays = [
     inputs.claude-code.overlays.default
-    inputs.affinity-nix.overlays.default
   ];
 
   home-manager = {
