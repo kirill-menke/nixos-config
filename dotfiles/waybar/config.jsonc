@@ -4,135 +4,698 @@
     // still reserves space, so the bar stays visible during normal use.
     "layer": "bottom",
     "position": "top", // Waybar position (top|bottom|left|right)
+    // No "cursor" keys: waybar already shows a hand pointer on every module
+    // with a click action. (The key also crashed stock 0.15.0 when a monitor
+    // was re-created on resume, Waybar #5055; our build is patched.)
+    //
+    // One mouse scheme for every module: a click opens its card (a second
+    // click or Esc closes it); a middle click flips its quick toggle where
+    // it has one (mute, pause); a right click is its secondary action;
+    // scrolling sets its level. What can't be undone at once wants a
+    // double click. Each tooltip ends in a dim line naming the gestures a
+    // click doesn't show.
 
-    "modules-left": ["hyprland/workspaces", "tray"],
-    "modules-center": ["group/hw"],
-    "modules-right": ["custom/network", "bluetooth", "hyprland/language", "pulseaudio", "custom/display", "custom/weather", "clock", "custom/pomodoro", "custom/power"],
+    // The hardware pill sits on the left, where there is room: in the
+    // centre it left the right-hand modules 74 px, so any two everyday
+    // states at once (a running pomodoro, headphones with their battery,
+    // "No network") pushed the bar's right end off the screen. The centre
+    // stays empty.
+    "modules-left": ["hyprland/workspaces", "tray", "group/hw", "mpris", "custom/attention", "privacy", "custom/camera", "hyprland/submap"],
+    "modules-center": [],
+    // Two pills, each a group whose box draws the surface and the rounded
+    // ends (style.css), so they stay round whichever member hides or
+    // moves. Power stays last: its card opens at the bar's right end.
+    "modules-right": ["group/devices", "group/session"],
 
     // One box carries the pill background, so the rounded ends stay intact
-    // when a member (e.g. GPU) hides itself
+    // when a member (e.g. GPU) hides itself. One target, too: every member
+    // opens the System card (left) and btop (right; the GPU nvtop), and
+    // style.css lights the whole pill on hover. A click on the group itself
+    // does nothing in 0.15 (Group::handleToggle only reveals drawers), so
+    // each member carries the clicks.
     "group/hw": {
         "orientation": "inherit",
-        "modules": ["custom/net-speed", "memory", "cpu", "temperature", "custom/gpu"]
+        "modules": ["custom/net-speed", "custom/memory", "cpu", "custom/temperature", "custom/gpu"]
+    },
+    // The device pill: the link and what lies past it, power, radios,
+    // keyboard, sound, screen
+    "group/devices": {
+        "orientation": "inherit",
+        "modules": ["network#status", "custom/connectivity", "battery", "bluetooth", "hyprland/language", "pulseaudio", "custom/display"]
+    },
+    // The session pill: the day, what asks for attention, the focus timer,
+    // and the way out
+    "group/session": {
+        "orientation": "inherit",
+        "modules": ["custom/weather", "clock", "custom/notifications", "custom/pomodoro", "custom/power"]
+    },
+    // While a submap is on (SUPER+B, the bar's cards by letter: hyprland.lua)
+    // its name, which hyprland.lua makes the legend of its letters. Last on
+    // the left, like privacy, so it moves nothing when it shows. The name is
+    // markup here: no "&" or "<" in it.
+    "hyprland/submap": {
+        "tooltip": false
     },
     "hyprland/workspaces": {
-        "disable-scroll": true,
         "all-outputs": true, // set false later if you go per-monitor
-        "format": "{icon}",
+        // A glyph per window, by class (window-rewrite: the keys are
+        // regexes over "class<app id or X11 class>", matched case-blind;
+        // only classes, so a title change redraws nothing), in the colours
+        // of the workspace's state (style.css). Workspaces 1-5 always hold
+        // their place, so the n-th slot is SUPER+n; an empty one is a ring
+        // (waybar draws it: Hyprland keeps an empty workspace only while it
+        // is shown). The array form: the integer form numbers the slots per
+        // monitor, which with all-outputs gives a second screen's bar 6-10.
+        // "default" is empty, or the workspace's number would stand before
+        // its windows. The separator is a space at 6 pt, about 4px: a whole
+        // one would space a workspace's glyphs as far apart as workspaces.
+        "format": "{icon}{windows}",
+        "persistent-workspaces": { "*": [1, 2, 3, 4, 5] },
+        // The scratchpad (SUPER+M) after them, only while it holds windows:
+        // its glyphs in a dashed outline (style.css), so a window parked
+        // there doesn't vanish from sight.
+        "show-special": true,
         "format-icons": {
-            "active": "◉",
-            "visible": "●",
-            "urgent": "●",
-            "default": "○"
+            "empty": "󰄰", // md-checkbox_blank_circle_outline
+            "default": ""
         },
-        "on-click": "activate"
+        "format-window-separator": "<span size='6144'> </span>",
+        "window-rewrite-default": "󰣆", // md-application
+        "window-rewrite": {
+            // md-console; the notes, dictionary and attention windows are kitty too
+            "class<(kitty|notes-modal|dict-modal|attention-details)>": "󰆍",
+            "class<(firefox|firefox-esr|org\\.mozilla\\.firefox)>": "󰈹",
+            // md-google_chrome; also Chromium and Chrome's web apps
+            "class<(google-chrome.*|chromium.*|chrome-.*)>": "󰊯",
+            "class<(code|code-url-handler|code-oss|codium)>": "󰨞",
+            "class<orca>": "󱢴", // md-dolphin: Orca's icon is an orca
+            "class<(org\\.gnome\\.nautilus|nautilus)>": "󰉋", // md-folder
+            "class<spotify>": "󰓇",
+            // nf-linux-mpv, as in mpris; Celluloid is an mpv too
+            "class<(mpv|io\\.github\\.celluloid_player\\.celluloid)>": "",
+            "class<(org\\.telegram\\.desktop|telegramdesktop)>": "", // fa-telegram
+            "class<(discord|vesktop|webcord)>": "󰙯",
+            "class<(blender|org\\.blender\\.blender)>": "󰂫",
+            "class<(steam|steam_app_\\d+)>": "󰓓", // also Steam's games
+            "class<affinity\\.exe>": "󰫨", // md-vector_bezier; Affinity runs in Wine
+            "class<(krita|org\\.kde\\.krita)>": "", // nf-linux-krita
+            "class<(signal|signal-desktop)>": "󰍩", // md-message_text
+            "class<(thunderbird|org\\.mozilla\\.thunderbird)>": "", // nf-linux-thunderbird
+            "class<org\\.pwmt\\.zathura>": "󰈦", // md-file_pdf_box
+            "class<imv>": "󰋩", // md-image
+            "class<org\\.pulseaudio\\.pavucontrol>": "󰙪", // md-tune_vertical
+            "class<(org\\.qbittorrent\\.qbittorrent|qbittorrent)>": "󰍇", // md-magnet
+            "class<com\\.usebottles\\.bottles>": "󰡔", // md-bottle_wine
+            // md-folder_open: a file chooser (the GTK portal's), not Nautilus
+            "class<xdg-desktop-portal-gtk>": "󰝰"
+        },
+        // Only for waybar's hand pointer: a click is the buttons' own (any
+        // button switches to the workspace), and "on-click" is no option of
+        // this module, so an empty command starts nothing. Under Hyprland's
+        // Lua config 0.15.0's buttons send a dispatch Hyprland rejects; the
+        // waybar patch in modules/home/desktop.nix sends the Lua form.
+        "on-click": ""
     },
+    // Left click: the weather card (bar-popup.py). `weather status` and the
+    // card share one cache, so both show the same reading, for where
+    // GeoClue puts the laptop, else Seeon-Seebruck. Tooltip: any DWD
+    // warning's headline, the condition, then rain or snow due in the next
+    // two hours ("Rain showers from 23:15 to 00:15"), timed by the DWD's
+    // radar where it reaches, else by the model. Classes:
+    // alert-<severity> while a warning holds, the warning glyph standing in
+    // for the condition's from moderate on; soon, with an umbrella there,
+    // while rain or snow is due within the hour; stale (dimmed) once the
+    // reading is over half an hour old, when the forecast for this hour
+    // stands in for it and the tooltip ends in "Forecast · no reading since
+    // HH:MM". Offline, weather.py retries less and less often, at most every
+    // quarter hour, and at once when the network changes. A new warning of
+    // moderate or worse also comes once as a notification ("Weather";
+    // critical from severe on), from whichever bar or card fetched it.
     "custom/weather": {
-        "exec": "~/.config/waybar/scripts/weather.sh",
+        "exec": "weather status",
         "return-type": "json",
-        "interval": 60,
-        "tooltip": true
-    },
-    "clock": {
-        "timezone": "Europe/Berlin",
-        "format": "{:%a %d %b %H:%M}",
-        "tooltip-format": "<tt>{calendar}</tt>"
-    },
-    "custom/pomodoro": {
-        "exec": "~/.config/waybar/scripts/pomodoro-status.sh",
-        "return-type": "json",
-        "interval": 1,
+        // Every five minutes, as the cache asks its sources again only
+        // every ten (weather.TTL) and Open-Meteo's reading moves in steps of
+        // fifteen; a click re-runs it too (exec-on-event).
+        "interval": 300,
         "tooltip": true,
-        "on-click": "pomodoro-popup",
-        "cursor": true, // hand pointer; undocumented AModule option
-        "on-click-right": "~/.config/waybar/scripts/pomodoro-reset.sh"
+        "escape": true, // the DWD's headlines reach the tooltip verbatim
+        // " &": with an "interval", waybar waits for a click's process
+        // before it runs the module again (custom.cpp, delayWorker), and the
+        // card's process lives as long as the card: the module froze while
+        // its card was open.
+        "on-click": "bar-popup weather &"
     },
+    // Left click: the calendar card (bar-popup.py); right click copies the
+    // date (below). The tooltip is today, "Friday, 16th October 2026 · Week
+    // 42", English like the bar: fields without "L" ignore LC_TIME (German
+    // here). {ordinal_date} is waybar's "16th", where %d would pad to "06";
+    // the fields are numbered because all three format the same time. Its
+    // last line, dim: what the right click does (see the top). No
+    // "timezone": the bar follows the system's zone, as the calendar card
+    // does, so travelling changes both.
+    "clock": {
+        "format": "{:%a %d %b %H:%M}",
+        "tooltip-format": "{0:%A}, {ordinal_date} {0:%B %Y} · Week {0:%V}\n<span size='small' foreground='#a6adc8'>Right-click: copy the date</span>",
+        "on-click": "bar-popup calendar",
+        // Right click: today, as 2026-10-17, to the clipboard. A 2 s popup
+        // confirms it, as the network module's copy does (past Do Not
+        // Disturb, kept out of the history), so a mis-click that replaced
+        // the clipboard shows. setsid: wl-copy forks a server that holds the
+        // clipboard, and a bar reload ends each click's process group.
+        "on-click-right": "d=$(date +%F) && setsid wl-copy -- \"$d\" && notify-send -e -a clock -t 2000 -h boolean:SWAYNC_BYPASS_DND:true 'Copied date' \"$d\""
+    },
+    // Left click: swaync's panel (history, Do Not Disturb, media); right
+    // click: Do Not Disturb, which osd flips and says so in a transient
+    // popup that bypasses it: the sleeping bell alone is easy to miss after
+    // a stray right click, and every popup would then stay away.
+    // notif-bar (waybar-popups) turns `swaync-client -s`, which prints a
+    // line whenever the count, Do Not Disturb, a hold or the panel changes,
+    // into this module's JSON, so nothing polls. It remembers how many
+    // notifications the panel held when it was last open: the rest are new.
+    // "alt" is swaync's own state, [dnd-][inhibited-]notification|none
+    // ("inhibited": an app holds popups back: a screen share, a pomodoro
+    // focus phase or a fullscreen window); "class" adds "new" while
+    // something arrived since and "cc-open" while the panel is open; "text"
+    // is the badge after the bell, the number of new ones ("9+" past nine),
+    // small, raised and in @warn, as markup. The tooltip names the state,
+    // "Do Not Disturb · 2 new, 5 in the panel", then the right click. -sw:
+    // a click fails at once while swaync is down instead of waiting for it.
+    "custom/notifications": {
+        "exec": "notif-bar",
+        "return-type": "json",
+        "restart-interval": 5, // s, should it ever exit
+        // notif-bar writes every string itself (numbers and fixed words),
+        // and its badge and its tooltip's hint line are markup
+        "escape": false,
+        "format": "{icon}{text}",
+        // Filled: something in the panel, outline: nothing. Bell; sleeping
+        // bell: Do Not Disturb, which wins over a hold (it is the switch a
+        // right click flips, and it outlasts the hold); crossed bell: popups
+        // held back. What is new gets notif-bar's badge, in every state, so
+        // the filled bell is the plain one, not the badge bell.
+        "format-icons": {
+            "notification": "󰂚",
+            "none": "󰂜",
+            "dnd-notification": "󰂠",
+            "dnd-none": "󰪓",
+            "inhibited-notification": "󰂛",
+            "inhibited-none": "󰪑",
+            "dnd-inhibited-notification": "󰂠",
+            "dnd-inhibited-none": "󰪓"
+        },
+        // bar-popup close first: a card and swaync's panel close each
+        // other, like the cards among themselves
+        "on-click": "bar-popup close; swaync-client -t -sw",
+        "on-click-right": "osd dnd"
+    },
+    // Left click: the Pomodoro card (bar-popup.py): the focus and break
+    // lengths and Start, or the time left with Pause/Resume and Stop.
+    // Middle click (or SUPER+SHIFT+P) starts an idle timer at the last
+    // lengths, pauses or resumes; a double right-click stops, as a stop
+    // throws the running phase away: a single stray right click does
+    // nothing (GTK reports a double click after the two single ones, and
+    // there is no single one to act on). Scrolling moves the end of a
+    // running or paused phase by 5 minutes (below). pomodoro-bar runs as
+    // long as the bar (no "interval") and prints only changes: the whole
+    // minutes left while a timer runs (the seconds of the last one; focus
+    // counts down on a pie that empties by eighths), so about once a
+    // minute; nothing while idle or paused. The clicks, the scrolls, the
+    // key and the card's buttons wake it at once.
+    "custom/pomodoro": {
+        "exec": "pomodoro-bar",
+        "return-type": "json",
+        "restart-interval": 5, // should it ever exit
+        "tooltip": true,
+        "on-click": "bar-popup pomodoro",
+        "on-click-middle": "pomodoro-bar toggle",
+        "on-double-click-right": "pomodoro-bar stop",
+        // 5 minutes more or less left in the phase (seconds, signed), a
+        // swipe up adding, as a swipe up raises the volume: the same
+        // threshold, one step per notch or short swipe, and the same
+        // turn-round for the touchpad's natural scrolling (pulseaudio
+        // above). pomodoro-bar keeps at least 1 minute left and at most 99,
+        // the bar's three characters, so a long swipe ends there; idle it
+        // does nothing, so a stray scroll over the pill is harmless.
+        "on-scroll-up": "pomodoro-bar add 300",
+        "on-scroll-down": "pomodoro-bar add -300",
+        "smooth-scrolling-threshold": 1,
+        "reverse-scrolling": true
+    },
+    // Left click: the power card (bar-popup.py): lock, suspend, log out,
+    // restart, shut down. SUPER+Escape and the power key open the same card
+    // (hyprland.lua); holding the power key 5 s still forces power-off.
     "custom/power": {
         "format": "⏻",
-        "on-click": "~/.config/hypr/scripts/power-menu.sh",
+        "on-click": "bar-popup power",
         "tooltip": false
     },
     "pulseaudio": {
-        "format": "{icon} {volume}%",
-        "format-muted": "󰖁",
+        // A muted microphone adds a red mic-off glyph after the level, also
+        // while the output is muted; a live one adds nothing (an empty
+        // format-source, so no trailing space). #f38ba8 is mocha's red:
+        // markup can't name CSS colours.
+        "format": "{icon} {volume}%{format_source}",
+        "format-muted": "󰖁{format_source}",
+        "format-source": "",
+        "format-source-muted": " <span color='#f38ba8'>󰍭</span>",
+        // Headphones or a headset, wired or Bluetooth (waybar looks for the
+        // words in the port's name and the device's form factor): their
+        // glyph instead of the speaker's, as wide as the loudest one. An
+        // HDMI output (a monitor's or a TV's speakers, docked) a TV, as
+        // wide again, so docking never moves the bar.
         "format-icons": {
+            "headphone": "󰋋",
+            "headset": "󰋋",
+            "hdmi": "󰠹", // md-television_box
             "default": ["󰕿", "󰖀", "󰕾"]
         },
-        // Left click: volume + output sink card (bar-popup.py). Picking the
-        // sink is worth the primary click because `play` keys its whole
-        // behaviour (Atmos bitstreaming, 4K/HDR mode switch) off which sink
-        // is default.
+        // Scrolling steps the volume as the volume keys do, through osd:
+        // their 5 % step and their popup, as brightness scrolls on the
+        // display module. A wheel notch or a short swipe is one step:
+        // without the threshold every small touchpad event is a step of its
+        // own. reverse-scrolling: the touchpad scrolls naturally
+        // (hyprland.lua), so a swipe up arrives as a scroll down; turned
+        // round, it raises the volume. Waybar leaves a mouse wheel as it is.
+        "on-scroll-up": "osd volume up",
+        "on-scroll-down": "osd volume down",
+        "smooth-scrolling-threshold": 1,
+        "reverse-scrolling": true,
+        // Left click: the Sound card (bar-popup.py): output, mic, app
+        // volumes. Middle click mutes, as the mute key does, with its popup.
         "on-click": "bar-popup sound",
-        "cursor": true,
-        "on-click-right": "pavucontrol"
+        "on-click-middle": "osd volume mute",
+        // After pavucontrol closes, osd puts the mic-mute LED right:
+        // pavucontrol mutes without it.
+        "on-click-right": "pavucontrol; osd mic sync",
+        // The sink's name, then the gestures a click doesn't show, in the
+        // cards' dim subtext0 (5.6:1 on the tooltip's surface0).
+        "tooltip-format": "{desc}\n<span size='small' foreground='#a6adc8'>Scroll: volume · Middle-click: mute · Right-click: mixer</span>"
     },
-    // Evening mode (warm tint) and monitor brightness. `nightlight daemon`
-    // re-runs this through "signal" whenever the tint changes.
+    // Evening mode (warm tint) and monitor brightness: the glyph, then the
+    // level of the bar's own screen (nightlight.py reads waybar's
+    // WAYBAR_OUTPUT_NAME): the built-in panel's backlight on the laptop's
+    // bar, a monitor's DDC/CI level, as last read or set, on that monitor's
+    // bar; the glyph alone where there is none.
+    // `nightlight daemon` re-runs this through "signal" whenever the tint
+    // or the level changes, as do the brightness keys and the Display card,
+    // and its 30 s tick catches whatever else changed the module (a switch
+    // time, a dimmed panel), so nothing polls: no "interval". (With one,
+    // waybar also waited for each click's process before running this
+    // again, and `bar-popup display` lives as long as the card: the module
+    // froze while its card was open.) Scrolling steps the brightness of
+    // the screen under the pointer, as the keys do, with their popup: the
+    // built-in panel's backlight, or a monitor's over DDC/CI (nothing
+    // happens on one that doesn't answer it); one step per notch or short
+    // swipe, a swipe up brightening, as on the volume.
     "custom/display": {
         "exec": "nightlight status",
         "return-type": "json",
-        "interval": 60,
         "signal": 8, // nightlight.WAYBAR_SIGNAL
+        // The clicks and scrolls signal the module themselves (osd,
+        // nightlight toggle, the card); waybar's own re-run after each, on
+        // every scroll event, under the step threshold too, would be a
+        // second `nightlight status` per notch.
+        "exec-on-event": false,
         "on-click": "bar-popup display",
-        "cursor": true,
-        "on-click-right": "nightlight toggle"
+        "on-click-right": "nightlight toggle",
+        "on-scroll-up": "osd brightness up",
+        "on-scroll-down": "osd brightness down",
+        "smooth-scrolling-threshold": 1,
+        "reverse-scrolling": true
     },
     "hyprland/language": {
-        "format": "󰌌 {}",
+        // The layout's code alone: without a keyboard glyph the right-hand
+        // modules keep room for the display module's brightness level. DE,
+        // the layout that isn't the default, in mauve, the accent: what the
+        // keys type now, as the submap pill's mauve says where they go (not
+        // peach, which would read as a warning beside the low battery).
+        // 0.15's module sets no class per layout, so the colour is markup,
+        // mocha's mauve in hex: markup can't name CSS colours.
+        "format": "{}",
         "format-en": "US",
-        "format-de": "DE",
-        "on-click": "hyprctl switchxkblayout all next"
+        "format-de": "<span color='#cba6f7'>DE</span>",
+        // At least two characters wide: waybar builds this label to shrink
+        // to "…" first when the bar runs short, the code lost exactly when
+        // typing in the other layout matters.
+        "min-length": 2,
+        // Read off the power button: every Alt+Shift switches it with the
+        // rest, and it never comes or goes. Unnamed, the pill showed
+        // whichever keyboard reported last, and a new one reports the first
+        // layout (a keyboard plugged in, the headphones' media keys) or none
+        // at all (wtype's virtual keyboard behind PgUp/PgDn blanked it). It
+        // also spares waybar's XKB registry read (about 18 ms) for the other
+        // keyboards' reports, nine per switch. A machine without a
+        // "power-button" in `hyprctl devices` needs another keyboard named
+        // here, or the pill keeps the layout it started with.
+        "keyboard-name": "power-button",
+        // Every keyboard to the layout after the one shown, so all of them
+        // agree again. Not the "main" keyboard, as Alt+Shift (hyprland.lua)
+        // takes: with the mouse in hand that is whichever keyboard came
+        // last, and one just plugged in still has the first layout, so the
+        // click switched to the layout already in use. The main keyboard
+        // stands in on a machine without a power button.
+        "on-click": "hyprctl switchxkblayout all $(hyprctl -j devices | jq 'first(.keyboards[] | select(.name == \"power-button\")) // first(.keyboards[] | select(.main)) | (.active_layout_index + 1) % (.layout | split(\",\") | length)')",
+        // Right click: Tecla, the keyboard map of the layout in use (where
+        // @ is on DE), which follows Alt+Shift while it is open; it floats
+        // and Escape closes it (hyprland.lua). The module has no tooltip in
+        // 0.15, so no hint line can name it.
+        "on-click-right": "tecla"
     },
-    "custom/network": {
-        "exec": "~/.config/waybar/scripts/network.sh",
-        "return-type": "json",
-        "interval": 5,
-        "tooltip": true,
+    // Built in: follows the default route over netlink and reads the Wi-Fi
+    // signal in-process, so it launches nothing. Its % is waybar's own scale
+    // (-45 dBm = 100 %), not NetworkManager's. There is no "connecting"
+    // state: until the new link has a default route it shows "No network",
+    // and NetworkManager adds that route only once the link has its
+    // address. "linked" (a route but no address) is what waybar reports
+    // when it has lost track of the link's addresses, so it says just that.
+    // style.css styles it as #network.status: waybar names the label
+    // #network and adds the instance name as a class.
+    "network#status": {
+        "interval": 5, // s between signal reads; link and address changes are events
+        // Waybar drops the address it shows whenever any address of the
+        // link goes away (e.g. an expiring IPv6 privacy address); with IPv6
+        // tracked too, that no longer reads as "linked" (no address).
+        "family": "ipv4_6",
+        "format-wifi": "{icon} {signalStrength}%",
+        "format-icons": ["󰤟", "󰤢", "󰤥", "󰤨"],
+        "format-ethernet": "󰈀 Ethernet",
+        "format-linked": "󰤯 No address",
+        "format-disconnected": "󰤭 No network",
+        // rfkill (the card's switch, the radio key); the glyph already says
+        // Wi-Fi, so one word keeps the right-hand modules short
+        "format-disabled": "󰖪 Off",
+        // {ipaddr} is the IPv4 address, a line break and the IPv6 one, which
+        // an IPv4-only network leaves empty; the break after it is drawn
+        // 1/1024 pt tall, so that empty line takes no room. No band: waybar
+        // has only the channel's frequency ("5.2 GHz"), where the Network
+        // card names the band ("5 GHz"). The last line, dim: what a right
+        // click does (see the top).
+        "tooltip-format-wifi": "{essid} · {signalStrength}%\n{ipaddr}<span size='1'>\n</span><span size='small' foreground='#a6adc8'>Right-click: copy the public IP</span>",
+        "tooltip-format-ethernet": "Ethernet · {ifname}\n{ipaddr}<span size='1'>\n</span><span size='small' foreground='#a6adc8'>Right-click: copy the public IP</span>",
+        "tooltip-format-linked": "Linked, but no address",
+        "tooltip-format-disconnected": "Disconnected",
+        "tooltip-format-disabled": "Wi-Fi is off",
         "on-click": "bar-popup network",
-        "cursor": true,
-        "on-click-right": "cut -d'|' -f1 /tmp/waybar-network-public-ip | wl-copy"
+        // Right click: the public IPv4 address, or IPv6 on a network without
+        // one, to the clipboard; a popup says at once that it is looking it
+        // up, then what it copied.
+        "on-click-right": "publicip copy"
     },
+    // What lies past the link, which the network module can't see
+    // (connectivity.py): "Sign in" while a captive portal holds the
+    // connection back (a click opens the sign-in page; NetworkManager then
+    // checks again every 10 s for up to 2 min), a glyph while the network
+    // answers but the internet doesn't, a lock while a VPN is up (a click
+    // opens the Network card); hidden otherwise. NetworkManager's
+    // dispatcher sends the signal on each change (modules/nixos/desktop.nix), so
+    // nothing polls. Signals taken: 8 display, 9 this one.
+    "custom/connectivity": {
+        "exec": "connectivity status",
+        "return-type": "json",
+        "signal": 9, // RTMIN+9, from the NetworkManager dispatcher script
+        // The tooltip's hint line is markup; connectivity.py escapes the
+        // network's and the VPN's names itself.
+        "escape": false,
+        "on-click": "connectivity open"
+    },
+    // Left click: the Battery card (bar-popup.py) with the time left, the
+    // power, the battery's wear and the power mode. Without a battery (the
+    // desktop PC) waybar hides the module. Read every 30 s: the charger
+    // coming or going reaches waybar at once as a udev event, the level
+    // moves about 1 % in 3 minutes, and each read is an ACPI query to the
+    // embedded controller. Each "events" command runs once whenever the
+    // battery enters a state, discharging or on the charger (plugged, full
+    // and not charging count as charging), also when the bar starts in
+    // one. Waybar waits for it, so it must return at once, as notify-send
+    // does. The shared tag makes each notice replace the one before.
+    // "last" is the final call: UPower hibernates the laptop at 2 %
+    // (hosts/laptop/default.nix; it shuts down instead where it can't hibernate),
+    // minutes after 5 %. Critical notices get through Do Not Disturb and
+    // stay until dismissed; the 30 % one gets through by its hint. Back on
+    // the charger, a transient "Charging" that expires after 5 s takes the
+    // critical one's place, on screen and in the panel.
+    "battery": {
+        "interval": 30,
+        "states": {
+            "warning": 30,
+            "critical": 15,
+            "last": 5
+        },
+        "format": "{icon} {capacity}%",
+        // The glyph fills with the charge on the charger too: format-icons
+        // keyed by status (the card's gauge draws the same ones). They are
+        // 6 px wider than the others; style.css holds the width.
+        "format-charging": "{icon} {capacity}%",
+        "format-plugged": "󰚥 {capacity}%",
+        "format-icons": {
+            "default": ["󰂎", "󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹"],
+            "charging": ["󰢟", "󰢜", "󰂆", "󰂇", "󰂈", "󰢝", "󰂉", "󰢞", "󰂊", "󰂋", "󰂅"]
+        },
+        // The power alone: waybar's own time left ({timeTo}) is the moment's
+        // estimate, which swings and disagrees with the card's.
+        "tooltip-format-discharging": "Drawing {power:.1f} W",
+        "tooltip-format-charging": "Charging at {power:.1f} W",
+        "tooltip-format": "On the charger",
+        "on-click": "bar-popup battery",
+        "events": {
+            "on-discharging-warning": "notify-send -a Battery -u normal -i battery-low -h boolean:SWAYNC_BYPASS_DND:true -h string:x-canonical-private-synchronous:battery 'Battery low' 'Plug in when you can.'",
+            "on-discharging-critical": "notify-send -a Battery -u critical -i battery-caution -h string:x-canonical-private-synchronous:battery 'Battery critically low' 'Plug in now. It hibernates at 2 %.'",
+            "on-discharging-last": "notify-send -a Battery -u critical -i battery-empty -h string:x-canonical-private-synchronous:battery 'Battery almost empty' 'It hibernates at 2 %, minutes from now. Plug in or save your work.'",
+            "on-charging-critical": "notify-send -a Battery -u low -e -i battery-caution-charging -h string:x-canonical-private-synchronous:battery 'Charging' 'The battery is charging again.'",
+            "on-charging-last": "notify-send -a Battery -u low -e -i battery-caution-charging -h string:x-canonical-private-synchronous:battery 'Charging' 'The battery is charging again.'"
+        }
+    },
+    // Built in and event-driven: it follows BlueZ's objects on the system
+    // bus, so it launches nothing. A lone glyph per state: on, off (the
+    // usual one here) and disabled (rfkill) dimmed in style.css, connected;
+    // the battery of the device that connected last joins it once BlueZ
+    // reports one (Battery1; headsets through PipeWire). Hidden when BlueZ
+    // has no adapter (a PC without Bluetooth, or bluetoothd not running).
+    // The tooltip lists the connected devices, then, dim, what a right
+    // click does (see the top). Left click: the Bluetooth card, which also
+    // turns Bluetooth on and connects in one click; right click turns
+    // Bluetooth off or on, with osd's popup to say so, as the display's
+    // right click turns evening mode off and on. Blocked by rfkill, it
+    // stays off and the popup says why.
     "bluetooth": {
-        "format": "󰂯 {status}",
-        "format-connected": "󰂱 {num_connections}",
+        "format-on": "󰂯",
+        "format-off": "󰂲",
         "format-disabled": "󰂲",
-        "tooltip-format": "{controller_alias}\t{controller_address}",
-        "tooltip-format-connected": "{controller_alias}\t{controller_address}\n\n{device_enumerate}",
-        "tooltip-format-enumerate-connected": "{device_alias}\t{device_address}",
+        "format-connected": "󰂱",
+        "format-connected-battery": "󰂱 {device_battery_percentage}%",
+        "format-no-controller": "",
+        "tooltip-format-on": "Bluetooth is on, nothing connected\n<span size='small' foreground='#a6adc8'>Right-click: turn Bluetooth off</span>",
+        "tooltip-format-off": "Bluetooth is off\n<span size='small' foreground='#a6adc8'>Right-click: turn Bluetooth on</span>",
+        "tooltip-format-disabled": "Bluetooth is blocked (rfkill)",
+        "tooltip-format-connected": "{device_enumerate}\n<span size='small' foreground='#a6adc8'>Right-click: turn Bluetooth off</span>",
+        "tooltip-format-enumerate-connected": "{device_alias}",
+        "tooltip-format-enumerate-connected-battery": "{device_alias} · {device_battery_percentage}%",
         "on-click": "bar-popup bluetooth",
-        "cursor": true,
-        "on-click-right": "blueman-manager"
+        "on-click-right": "osd bluetooth"
     },
+    // Idle ("passive") items stay shown, dimmed in style.css. Waybar 0.15
+    // decides whether to show the tray only when an item comes or goes,
+    // which is before the item has said it is passive: with false the pill
+    // sits empty, or stays hidden once udiskie turns active for a drive.
+    // 16 px: Papirus draws its tray icons at 16 px, and 18 got its 22 px
+    // ones scaled down (softer, and smaller than the glyphs). No spacing:
+    // each item's own padding spaces them (style.css), so its hover
+    // highlight is a pill of its own.
     "tray": {
-        "icon-size": 18,
-        "spacing": 10,
-        "show-passive-items": true
+        "icon-size": 16,
+        "spacing": 0,
+        "show-passive-items": true,
+        // Discord's tray icon is a picture (Electron sends no icon name),
+        // which no icon theme can recolour: this gives it the theme's
+        // discord-tray, monochrome in the bar's text colour
+        // (dotfiles/icons/Papirus-Dark-Tray). Steam and qBittorrent need no
+        // entry: their icon names come from that theme already. The key is
+        // Discord's tooltip, lowercased, waybar's stand-in for an Electron
+        // app's Id. The icon then stays as it is when Discord changes its
+        // own, so the tray no longer shows Discord's unread dot or voice
+        // state.
+        "icons": { "discord": "discord-tray" }
     },
-    "memory": {
-        "interval": 5,
-        "format": "󰍛 {}%",
-        "tooltip-format": "RAM: {used:0.1f}G / {total:0.1f}G"
+    // Now playing. The default player, playerctld, follows whichever app
+    // played last. Hidden while nothing plays and once the player stops; a
+    // paused track stays, dimmed, behind a pause glyph. The clicks are
+    // waybar's own: left play/pause, middle previous, right next; the
+    // tooltip's last line names them (plain text: no markup here).
+    "mpris": {
+        "format": "{player_icon} {dynamic}",
+        "format-paused": "{status_icon} {dynamic}",
+        // Keyed by the player's bus name up to the first dot
+        "player-icons": {
+            "default": "󰝚", // md-music
+            "spotify": "󰓇",
+            "firefox": "󰈹",
+            "chromium": "󰊯", // Google Chrome registers as chromium too
+            // Needs mpv's mpris script (each host's home config)
+            "mpv": "", // nf-linux-mpv
+            // Celluloid: io.github.celluloid_player.Celluloid, an mpv too
+            "io": ""
+        },
+        "status-icons": {
+            "paused": "󰏤"
+        },
+        // The title, then the artist if it fits as well. album-len 0 keeps
+        // the album off the bar; the tooltip, which ignores the lengths,
+        // shows all three. Waybar 0.15 leaves the title's separator out of
+        // dynamic-len, so the text runs to 33 characters, a pill of ~350 px;
+        // at 40 it ran to 43, ~440 px, which with a busy left side crowded
+        // the modules after it.
+        "dynamic-order": ["title", "artist", "album"],
+        "dynamic-separator": " · ",
+        "dynamic-len": 30,
+        "title-len": 30, // a longer title ends in "…" instead of dropping out
+        "album-len": 0,
+        "tooltip-format": "{dynamic}\nClick: play/pause · Middle-click: previous · Right-click: next"
+    },
+    // Hidden while all is well. `attention watch` runs as long as the bar,
+    // one process per bar, and prints the module whenever it changes. It
+    // checks at start, every five minutes, and a few seconds after a unit
+    // fails, is about to be restarted automatically, or one on the bar
+    // changes (both service managers announce these), a switch reloads the
+    // system, nixos-rebuild makes a system profile, the power cord goes in
+    // or out, or fwupd shows up or announces a change. Idle, it wakes only
+    // for the five minutes. A check asks both service managers, udisks2 and
+    // UPower over D-Bus (from that one process, no systemctl) and reads the
+    // rest from the file system. Red, with their count: failed units and
+    // services caught in a restart loop, a disk as full as the System
+    // card's meter turns red or a /boot with no room for another kernel, a
+    // drive whose own health log says it is failing. Peach: an app that has
+    // kept a core busy for five minutes on battery, by name; what only a
+    // reboot brings in, a generation `nixos-rebuild boot` staged included;
+    // a firmware update fwupd offers, the BIOS's or any device's. Left
+    // click: the Attention card (bar-popup.py), whose rows lead to the
+    // logs, a user unit's restart, the reboot and fwupd's release notes.
+    // Right click: all of it in a kitty window like the notes modal,
+    // read-only; --hold leaves a shell there afterwards.
+    "custom/attention": {
+        "exec": "attention watch",
+        "return-type": "json",
+        // No "interval": the watcher prints what changed by itself, after
+        // the card's actions too (a restarted or reset unit announces it),
+        // so no "signal" either. Should it end (its bus restarted in a
+        // switch, or a check failed), waybar starts it again after 30 s.
+        "restart-interval": 30,
+        // The tooltip's hint line is markup; attention.py escapes unit and
+        // app names itself.
+        "escape": false,
+        "on-click": "bar-popup attention",
+        "on-click-right": "kitty --class=attention-details --title='Needs attention' -o window_padding_width=12 --hold attention details"
+    },
+    // Only while an app records the microphone or captures the screen (a
+    // PipeWire stream; level meters don't count): an icon for each, the
+    // apps in its tooltip, on the bar's only solid peach pills with the
+    // camera's (style.css). Left click: pavucontrol's Recording tab, who
+    // records, each with its own mute; right click: the microphone off.
+    // Its tooltips are waybar's own list of apps, so they can't name the
+    // clicks. At 14px the icons are as tall as the bar's glyphs.
+    "privacy": {
+        "icon-size": 14,
+        "modules": [{"type": "audio-in"}, {"type": "screenshare"}],
+        // The Recording tab (1-based, pavucontrol 6.2); the sync puts the
+        // mic-mute LED right afterwards, as on the sound module
+        "on-click": "pavucontrol --tab=2; osd mic sync",
+        // Never unmutes, so a click on a recording indicator can't make the
+        // microphone live; it mutes the default input only
+        "on-click-right": "osd mic off"
+    },
+    // The webcam, which most apps open directly (V4L2), out of the privacy
+    // module's sight: `camera watch` (camera.py) sleeps until a /dev/video*
+    // opens or closes, then names the apps holding one in the tooltip.
+    // Hidden while none does; last on the left but for the SUPER+B legend,
+    // so it moves nothing when it shows.
+    "custom/camera": {
+        "exec": "camera watch",
+        "return-type": "json",
+        "restart-interval": 5, // s, should it ever exit
+        "escape": true // app names reach the tooltip verbatim
+    },
+    // Memory, CPU and temperature, like every group/hw member: left click
+    // opens the System card (bar-popup.py), right click btop in kitty.
+    // Used memory comes from a script for as long as the bar runs (no
+    // "interval"), coloured by whether programs wait for memory rather than
+    // by how full it is: with zram a full RAM still has room, and the
+    // kernel's pressure stall figures tell when the machine slows down.
+    // Peach from 80 % used or 10 % "some" pressure, red from 7 % "full" or
+    // from 92 % used with the zram 80 % full (memory.sh has the rule, and
+    // the System card colours by it too). The tooltip has the card's
+    // figures, swap and pressure.
+    "custom/memory": {
+        "exec": "~/.config/waybar/scripts/memory.sh",
+        "return-type": "json",
+        "restart-interval": 5, // s, should it ever exit
+        "on-click": "bar-popup system",
+        "on-click-right": "kitty btop"
     },
     "cpu": {
         "interval": 5,
-        "format": "󰻠 {usage}%",
-        "tooltip-format": "CPU Usage: {usage}%"
+        // Usage: peach from 70 %, red from 90 % (style.css). No tooltip:
+        // 0.15's cpu module has no tooltip-format, and its own is a line per
+        // thread (15 here), what the System card's bars show at a click.
+        // Waybar after 0.15 has tooltip-format (Waybar #4724).
+        "tooltip": false,
+        "states": {
+            "warning": 70,
+            "critical": 90
+        },
+        // Two digits wide (the font's space is a digit's width), so the
+        // pill doesn't shift half a digit whenever usage crosses 10 %.
+        "format": "󰻠 {usage:>2}%",
+        "on-click": "bar-popup system",
+        "on-click-right": "kitty btop"
     },
-    "temperature": {
-        "interval": 5,
-        "critical-threshold": 80,
-        "format": "{temperatureC}°C",
-        "tooltip-format": "CPU Temperature: {temperatureC}°C"
+    // The CPU package temperature, from a script for as long as the bar
+    // runs (no "interval"), as net-speed.sh: it finds the System card's
+    // sensor by driver and label (Intel's coretemp, AMD's k10temp Tdie or
+    // Tctl, zenpower), so the bar and the card agree, and hides the module
+    // on a machine without one, where waybar's own module would read the
+    // virtual thermal_zone0 (20 °C here). Warm and hot are 20 and 10 °C
+    // under the CPU's limit (85 and 95 °C here, where coretemp gives
+    // 105 °C), each held until 3 °C under it, so the colour doesn't flicker.
+    // The tooltip has the limit and how long the kernel throttled the CPU
+    // for heat since boot.
+    "custom/temperature": {
+        "exec": "~/.config/waybar/scripts/cpu-temp.sh",
+        "return-type": "json",
+        "restart-interval": 5, // s, should it ever exit
+        "on-click": "bar-popup system",
+        "on-click-right": "kitty btop"
     },
+    // One script for as long as the bar runs (no "interval"): it finds out
+    // once which GPU it can read and samples it every 5 s without starting
+    // a process per sample: NVIDIA through one nvidia-smi --loop, AMD and
+    // Intel graphics (the notebook) from world-readable sysfs, as the
+    // System card does. A dedicated GPU shows its hot glyph in peach from
+    // 80 °C and in red from 90 °C. Right click: nvtop, which shows the GPU
+    // on both machines; btop shows none (its Intel reader needs
+    // CAP_PERFMON, and nixpkgs' btop can't find NVIDIA's library).
     "custom/gpu": {
         "exec": "~/.config/waybar/scripts/gpu.sh",
         "return-type": "json",
-        "interval": 5,
-        "tooltip": true
+        "restart-interval": 5, // s, should it ever exit
+        "tooltip": true,
+        "on-click": "bar-popup system",
+        "on-click-right": "kitty nvtop"
     },
+    // One script for as long as the bar runs (no "interval"): every 2 s it
+    // reads the default route and that interface's byte counters with bash
+    // builtins and prints only when the text changes, so no process starts
+    // per tick. Each rate is four characters, unit included ("512K", "1.2M",
+    // " 12M"; spelled out in the tooltip), so the pill keeps its width from
+    // idle to gigabit; under 10 KiB/s both ways it is dimmed, and traffic on
+    // a metered link (NetworkManager's word, e.g. a phone's hotspot) is
+    // peach. It also keeps the last 3 minutes for the System card's Network
+    // line. Not the built-in network module: it pads each rate to 9
+    // characters, "B/s" included, which makes the pill about 90 px wider.
     "custom/net-speed": {
         "exec": "~/.config/waybar/scripts/net-speed.sh",
         "return-type": "json",
-        "interval": 2
+        "restart-interval": 5, // s, should it ever exit
+        "on-click": "bar-popup system",
+        "on-click-right": "kitty btop"
     }
 }

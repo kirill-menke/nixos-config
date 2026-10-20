@@ -1,0 +1,52 @@
+Subject: hyprland/workspaces: send workspace clicks in Hyprland's Lua syntax
+
+Waybar 0.15.0 sends Hyprland the hyprlang dispatch syntax ("dispatch
+workspace 3"). With a Lua config, Hyprland 0.56 runs whatever follows
+`dispatch` as `return hl.dispatch(<it>)` (HyprCtl.cpp, dispatchRequest),
+so "workspace 3" is a Lua syntax error, and waybar ignores the reply:
+clicking a workspace does nothing.
+
+Upstream fixed this after 0.15.0 (Alexays/Waybar#5008 and #5035, PR
+#5013) by probing for either syntax; that change does not apply to 0.15.0.
+Both machines run the Lua config, so this sends the Lua form only. The
+fields are the ones Hyprland 0.56.2 parses (LuaBindingsDispatchers.cpp,
+hlFocus and hlWorkspaceToggleSpecial). move-to-monitor uses
+`on_current_monitor = true`: PR #5013's `monitor = "current"` would focus
+the monitor and drop the workspace, as hlFocus reads `monitor` first.
+
+Drop this once nixpkgs ships a waybar newer than 0.15.0.
+
+diff --git a/src/modules/hyprland/workspace.cpp b/src/modules/hyprland/workspace.cpp
+index 4cdd891..fdb8a2d 100644
+--- a/src/modules/hyprland/workspace.cpp
++++ b/src/modules/hyprland/workspace.cpp
+@@ -71,20 +71,23 @@ bool Workspace::handleClicked(GdkEventButton* bt) const {
+     try {
+       if (id() > 0) {  // normal
+         if (m_workspaceManager.moveToMonitor()) {
+-          m_ipc.getSocket1Reply("dispatch focusworkspaceoncurrentmonitor " + std::to_string(id()));
++          m_ipc.getSocket1Reply("dispatch hl.dsp.focus({ workspace = \"" + std::to_string(id()) +
++                                "\", on_current_monitor = true })");
+         } else {
+-          m_ipc.getSocket1Reply("dispatch workspace " + std::to_string(id()));
++          m_ipc.getSocket1Reply("dispatch hl.dsp.focus({ workspace = \"" + std::to_string(id()) +
++                                "\" })");
+         }
+       } else if (!isSpecial()) {  // named (this includes persistent)
+         if (m_workspaceManager.moveToMonitor()) {
+-          m_ipc.getSocket1Reply("dispatch focusworkspaceoncurrentmonitor name:" + name());
++          m_ipc.getSocket1Reply("dispatch hl.dsp.focus({ workspace = \"name:" + name() +
++                                "\", on_current_monitor = true })");
+         } else {
+-          m_ipc.getSocket1Reply("dispatch workspace name:" + name());
++          m_ipc.getSocket1Reply("dispatch hl.dsp.focus({ workspace = \"name:" + name() + "\" })");
+         }
+       } else if (id() != -99) {  // named special
+-        m_ipc.getSocket1Reply("dispatch togglespecialworkspace " + name());
++        m_ipc.getSocket1Reply("dispatch hl.dsp.workspace.toggle_special(\"" + name() + "\")");
+       } else {  // special
+-        m_ipc.getSocket1Reply("dispatch togglespecialworkspace");
++        m_ipc.getSocket1Reply("dispatch hl.dsp.workspace.toggle_special()");
+       }
+       return true;
+     } catch (const std::exception& e) {

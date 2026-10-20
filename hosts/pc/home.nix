@@ -7,45 +7,9 @@
 }:
 
 let
-  # Python interpreter with GTK + cairo bindings for the waybar popups.
-  popupPython = pkgs.python3.withPackages (ps: [
-    ps.pygobject3
-    ps.pycairo
-  ]);
-
-  # The catppuccin waybar popups -- pomodoro-popup, and bar-popup for the
-  # network/bluetooth/sound/display modules -- wrapped so they find the
-  # GTK/layer-shell GObject-Introspection typelibs at runtime.  nightlight is
-  # the evening-mode scheduler behind the display card (and its own CLI).
-  waybar-popups = pkgs.stdenv.mkDerivation {
-    name = "waybar-popups";
-    src = ../../dotfiles/waybar/scripts;
-    nativeBuildInputs = [
-      pkgs.wrapGAppsHook3
-      pkgs.gobject-introspection
-    ];
-    buildInputs = [
-      pkgs.gtk3
-      pkgs.gtk-layer-shell
-      popupPython
-    ];
-    dontConfigure = true;
-    dontBuild = true;
-    installPhase = ''
-      runHook preInstall
-      mkdir -p $out/bin $out/lib
-      for name in pomodoro-popup bar-popup nightlight; do
-        sed "1s|.*|#!${popupPython}/bin/python3|" $name.py > $out/bin/$name
-        chmod +x $out/bin/$name
-      done
-      # bar-popup imports nightlight for the display card.
-      cp nightlight.py $out/lib/
-      runHook postInstall
-    '';
-    preFixup = ''
-      gappsWrapperArgs+=(--prefix PYTHONPATH : $out/lib)
-    '';
-  };
+  # The bar's scripts and cards (modules/home/desktop.nix); `play` and
+  # `celluloid-auto` pause and resume evening mode through its nightlight.
+  waybar-popups = config.desktop.waybarPopups;
 
   # Catppuccin GTK theme (Mocha, Blue accent) to match the rest of the system.
   # pkgs.catppuccin-gtk carries the build-args patch from the overlay in
@@ -638,12 +602,6 @@ let
     ];
   } (builtins.readFile ../../dotfiles/mpv-remote/server.py);
 
-  # SUPER+N quick-notes modal (Textual TUI, launched in kitty by
-  # hypr/scripts/notes.sh); notes are kept in ~/Documents/notes.md.
-  notes-modal = pkgs.writers.writePython3Bin "notes-modal" {
-    libraries = [ pkgs.python3Packages.textual ];
-  } (builtins.readFile ../../dotfiles/hypr/scripts/notes.py);
-
   # `tv` -- drive the LG C4 over the network (webOS SSAP).  The TV cannot send
   # its remote's key presses to the PC (webOS exposes no such endpoint, and the
   # Magic Remote is 2.4 GHz RF straight to the TV), but this direction works,
@@ -729,7 +687,12 @@ in
 {
   imports = [
     inputs.spicetify-nix.homeManagerModules.spicetify
+    ../../modules/home/desktop.nix
   ];
+
+  # The PC's screens, colour management, cursor, VA-API driver and Super+I;
+  # the rest of the Hyprland config is dotfiles/hypr/hyprland.lua.
+  desktop.hyprlandHostConfig = ./hyprland.lua;
 
   home.username = "kirill";
   home.homeDirectory = "/home/kirill";
@@ -782,7 +745,6 @@ in
     play # smart movie launcher: matches mode, HDR and audio to the source
     mpv-remote # phone remote (systemd user service below)
     tv # LG TV network control (wake + input switching)
-    notes-modal # SUPER+N quick notes, see the let block above
     obs-studio # screen recording (Wayland via PipeWire portal)
     kdePackages.kdenlive # video editing: keyframed zoom/pan post-production
 
@@ -792,7 +754,6 @@ in
 
     # Utilities
     wget
-    fzf
     pavucontrol
     nwg-look
     imagemagick
@@ -800,12 +761,8 @@ in
     file
     wl-clipboard
     wtype
-    pamixer
-    brightnessctl
-    libnotify
     appimage-run
     ydotool
-    blueman
     (lib.lowPrio sox) # audio recording for Claude Code voice mode; lowPrio: its bin/play must lose to our play launcher
     yt-dlp
     rclone
@@ -813,10 +770,6 @@ in
     # Markdown in the terminal, both driven by the `md` function in programs.zsh
     glow # styled + paged rendering, no image support
     mdcat # inline images via kitty's graphics protocol, but only unpaged
-
-    # Waybar popups: pomodoro timer, network/bluetooth/sound/display cards
-    waybar-popups
-    ddcutil # monitor brightness over DDC/CI, for the display card
 
     # Themes/Appearance
     # catppuccin-gtk / catppuccin-papirus-folders are installed via the gtk block below
@@ -1038,30 +991,6 @@ in
     Install.WantedBy = [ "default.target" ];
   };
 
-  # Evening mode.  hyprsunset holds the colour matrix and starts neutral;
-  # nightlight (waybar-popups) owns the schedule and the settings in
-  # ~/.local/state/nightlight.json, which the waybar display card edits.
-  # hyprsunset's own profiles stay unused: they live in a read-only config
-  # and every change would need a restart, which flashes the screens.
-  services.hyprsunset = {
-    enable = true;
-    extraArgs = [ "--identity" ];
-  };
-
-  systemd.user.services.nightlight = {
-    Unit = {
-      Description = "Evening mode schedule for hyprsunset";
-      After = [ "hyprsunset.service" ];
-      PartOf = [ config.wayland.systemd.target ];
-    };
-    Service = {
-      ExecStart = "${waybar-popups}/bin/nightlight daemon";
-      Restart = "on-failure";
-      RestartSec = 5;
-    };
-    Install.WantedBy = [ config.wayland.systemd.target ];
-  };
-
   # Make the normal "Celluloid" launcher entry use the sink-aware wrapper, so
   # opening a file from inside the app (Open > Open File) gets the right
   # audio path without any special command line.
@@ -1119,23 +1048,11 @@ in
   '';
 
   # Utilities
-  programs.wofi.enable = true;
-  xdg.configFile."wofi/style.css".source = ../../dotfiles/wofi/style.css;
-  xdg.configFile."wofi/chevron.svg".source = ../../dotfiles/wofi/chevron.svg;
   programs.fastfetch.enable = true;
   programs.htop.enable = true;
   programs.btop.enable = true;
-  programs.hyprshot.enable = true;
-  services.swaync = {
-    enable = true;
-    settings = builtins.fromJSON (builtins.readFile ../../dotfiles/swaync/config.json);
-    style = builtins.readFile ../../dotfiles/swaync/style.css;
-  };
   programs.aria2.enable = true;
-  # Reuse waybar's Catppuccin palette for the @import in style.css
-  xdg.configFile."swaync/mocha.css".source = ../../dotfiles/waybar/mocha.css;
 
-  services.udiskie.enable = true;
   services.hyprpaper = {
     enable = true;
     settings = {
@@ -1153,11 +1070,6 @@ in
   # Daily wallpaper text overlay
   xdg.configFile."hypr/splashes.txt".source = ../../dotfiles/hypr/splashes.txt;
   xdg.configFile."hypr/scripts/daily-wallpaper.sh" = script "hypr/scripts/daily-wallpaper.sh";
-
-  xdg.configFile."hypr/scripts/power-menu.sh" = script "hypr/scripts/power-menu.sh";
-
-  xdg.configFile."hypr/scripts/dict-lookup.sh" = script "hypr/scripts/dict-lookup.sh";
-  xdg.configFile."hypr/scripts/notes.sh" = script "hypr/scripts/notes.sh";
 
   systemd.user.services.daily-wallpaper = {
     Unit.Description = "Generate daily wallpaper with text overlay";
@@ -1186,7 +1098,6 @@ in
   '';
 
   services.hypridle.enable = false;
-  services.playerctld.enable = true;
 
   services.syncthing = {
     enable = true;
@@ -1210,18 +1121,6 @@ in
       };
     };
   };
-
-  programs.waybar.enable = true;
-
-  xdg.configFile."waybar/config.jsonc".source = ../../dotfiles/waybar/config.jsonc;
-  xdg.configFile."waybar/mocha.css".source = ../../dotfiles/waybar/mocha.css;
-  xdg.configFile."waybar/style.css".source = ../../dotfiles/waybar/style.css;
-  xdg.configFile."waybar/scripts/gpu.sh" = script "waybar/scripts/gpu.sh";
-  xdg.configFile."waybar/scripts/net-speed.sh" = script "waybar/scripts/net-speed.sh";
-  xdg.configFile."waybar/scripts/network.sh" = script "waybar/scripts/network.sh";
-  xdg.configFile."waybar/scripts/weather.sh" = script "waybar/scripts/weather.sh";
-  xdg.configFile."waybar/scripts/pomodoro-status.sh" = script "waybar/scripts/pomodoro-status.sh";
-  xdg.configFile."waybar/scripts/pomodoro-reset.sh" = script "waybar/scripts/pomodoro-reset.sh";
 
   programs.zsh = {
     enable = true;
@@ -1359,22 +1258,6 @@ in
     enable = true;
     # AWS config file is not managed by Home Manager to allow aws login to write credentials
   };
-
-  wayland.windowManager.hyprland = {
-    enable = true;
-    systemd.enable = true;
-    # Lua config: hyprlang is deprecated since Hyprland 0.55 and is dropped a
-    # release or two later.  home-manager writes hyprland.lua (plus a
-    # .luarc.json for editor completion against the hl.* stubs) and appends
-    # extraConfig verbatim after its own systemd start/stop hooks.  Switching
-    # the running session over needs `hyprctl reload full-reset` or a relogin;
-    # a plain reload stays on whichever parser the compositor started with.
-    configType = "lua";
-    extraConfig = builtins.readFile ../../dotfiles/hypr/hyprland.lua;
-  };
-
-  xdg.configFile."hypr/hyprlock.conf".source = ../../dotfiles/hypr/hyprlock.conf;
-  xdg.configFile."hypr/mocha.conf".source = ../../dotfiles/hypr/mocha.conf;
 
   home.stateVersion = "24.11";
 

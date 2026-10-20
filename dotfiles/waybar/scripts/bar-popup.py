@@ -1,17 +1,32 @@
 #!/usr/bin/env python3
-"""Catppuccin popups for the waybar network, bluetooth, sound and display
-modules.
+"""Catppuccin popup cards for the waybar modules.
 
-`bar-popup network|bluetooth|sound|display` opens a card in the style of the
-pomodoro popup, just under the bar and centred on the click. One process
-serves all four panels: launching it again for the panel that is open closes
-it (a second click on the same module), for another panel it swaps the card.
-Esc or a click anywhere below the bar closes it too.
+`bar-popup <name>` opens the card PANELS has under that name, just under
+the bar and centred on the click; `bar-popup <name> --key`, which the key
+bindings run, opens it at the bar's right end, as the pointer may be
+anywhere then. Asked for the card that is open, it closes it (a second
+click on the same module); for another card it swaps the card.
+`bar-popup close` closes any card: the bell runs it as it opens swaync's
+panel, and opening a card closes that panel, so one of them shows at a
+time. Tab, Shift+Tab and the arrow keys move between the card's controls,
+Enter or Space works the one with the focus ring, and Esc or a click
+anywhere else, on any monitor, closes the card.
+
+One process serves all the cards, and it stays once started (a user
+service starts it with the session): the `bar-popup` command is a shell
+script, bar-popup.sh, that hands the request over with busctl in a few ms,
+where starting Python for that took ~0.5 s a click. Only while none runs
+does the script start this file, installed as bar-popup-host, which then
+opens the card from its own command line.
+
+This file is the windows and the card registry. Each card is a module of
+its own, card_<name>.py: a Panel subclass, its own CSS (bytes) and what
+only it needs; cardkit.py has what they share. A new card takes one
+import and one PANELS entry here: the entry's key is its bar-popup
+argument, and its CSS joins the stylesheet by itself.
 """
 
 import json
-import re
-import subprocess
 import sys
 
 import gi
@@ -19,1243 +34,61 @@ import gi
 gi.require_version("Gdk", "3.0")
 gi.require_version("Gtk", "3.0")
 gi.require_version("GtkLayerShell", "0.1")
-gi.require_version("Pango", "1.0")
-from gi.repository import Gdk, Gio, GLib, Gtk, GtkLayerShell, Pango  # noqa: E402,E501
-
-import nightlight  # noqa: E402  (next to this file; PYTHONPATH when packaged)
-
-CARD_W = 360    # fixed, so the card can be centred before it is drawn, px
-CARD_TOP = 4    # gap under the bar's reserved area, px
-EDGE = 8        # closest the card gets to a monitor edge, px
-WIFI_MAX = 6    # nearby networks listed
-
-PUBLIC_IP_CACHE = "/tmp/waybar-network-public-ip"  # written by network.sh
-
-# Nerd Font glyphs, the same ones the bar uses.
-ICON = {
-    "ethernet": "\U000f0200",
-    "wifi": "\U000f0928",
-    "wifi3": "\U000f0925",
-    "wifi2": "\U000f0922",
-    "wifi1": "\U000f091f",
-    "bluetooth": "\U000f00af",
-    "bt-audio": "\U000f00b0",
-    "headphones": "\U000f02cb",
-    "speaker": "\U000f04c3",
-    "phone": "\U000f03f2",
-    "keyboard": "\U000f030c",
-    "mouse": "\U000f037d",
-    "gamepad": "\U000f02b4",
-    "computer": "\U000f0379",
-    "tv": "\U000f0502",
-    "volume": "\U000f057e",
-    "muted": "\U000f0581",
-    "add": "\U000f0415",
-    "mixer": "\U000f066a",
-    "monitor": "\U000f0379",
-    "screen-off": "\U000f0d90",
-    "night": "\U000f0594",
-    "warmth": "\U000f18d6",
-    "schedule": "\U000f1a77",
-    "minus": "\U000f0374",
-    "plus": "\U000f0415",
-}
-
-CSS = b"""
-window { background-color: transparent; }
-.backdrop { background-color: transparent; }
-
-.card {
-    background-color: #313244;
-    border: 1px solid #45475a;
-    border-radius: 18px;
-    padding: 18px 20px;
-}
-.card.bluetooth { padding: 10px 20px 8px; }
-.card.sound { padding-bottom: 10px; }
-
-.title {
-    color: #cdd6f4;
-    font-weight: bold;
-    font-size: 15px;
-}
-
-.seclabel {
-    color: #a6adc8;
-    font-size: 12px;
-    margin-top: 4px;
-}
-
-.empty { color: #a6adc8; padding: 6px 10px; }
-
-/* The Propo variant gives icons their real width; in the plain one they
-   overhang a narrower advance, which throws off centring. */
-.icon {
-    font-family: "FantasqueSansM Nerd Font Propo";
-    font-size: 19px;
-    color: #cba6f7;
-}
-
-.row, .iconbtn {
-    background: transparent;
-    background-image: none;
-    border: none;
-    box-shadow: none;
-    outline: none;
-    text-shadow: none;
-    border-radius: 12px;
-    color: #cdd6f4;
-}
-
-.row, .static { padding: 6px 10px; }
-.kv { padding: 3px 10px; min-height: 0; }
-.row:hover, .row.on { background-color: #45475a; }
-.row.on .name { color: #cba6f7; font-weight: bold; }
-.sub { color: #a6adc8; font-size: 12px; }
-.sub.bad, .empty.bad { color: #f38ba8; }
-.key { color: #a6adc8; }
-.copied { color: #a6e3a1; }
-
-.iconbtn {
-    font-family: "FantasqueSansM Nerd Font Propo";
-    font-size: 19px;
-    padding: 2px 8px;
-}
-.iconbtn:hover { background-color: #45475a; }
-.iconbtn.on { color: #f38ba8; }
-
-/* Display card: slider rows line their glyph up with the switch rows, and
-   the schedule's time steppers sit under its name. */
-.slider { padding: 0 10px; }
-.steppers { margin: -4px 10px 2px 46px; }
-.iconbtn.mini { font-size: 15px; padding: 0 4px; }
-.time { font-weight: bold; }
-.steppers:disabled .time { color: #6c7086; }
-
-.pill {
-    background-color: #45475a;
-    border-radius: 10px;
-    padding: 2px 10px;
-    font-size: 12px;
-    font-weight: bold;
-}
-.pill.ok { color: #a6e3a1; }
-.pill.bad { color: #f38ba8; }
-
-switch {
-    background-color: #45475a;
-    background-image: none;
-    border: none;
-    border-radius: 10px;
-    padding: 0;
-    font-size: 0;
-}
-switch:checked { background-color: #cba6f7; }
-switch slider {
-    background-color: #cdd6f4;
-    background-image: none;
-    border: none;
-    box-shadow: none;
-    border-radius: 50%;
-    min-width: 14px;
-    min-height: 14px;
-    margin: 2px;
-}
-
-entry {
-    background-color: #45475a;
-    background-image: none;
-    color: #cdd6f4;
-    caret-color: #f5e0dc;
-    border: none;
-    box-shadow: none;
-    border-radius: 10px;
-    padding: 6px 10px;
-    margin: 0 10px 4px 46px;
-}
-
-/* The theme pads a fine-tuning scale (knob pressed and held) 1px less on
-   each side, which made the whole card jump; pin one size for both. */
-scale {
-    padding: 17px 12px;
-    min-height: 2px;
-}
-scale trough {
-    background-color: #45475a;
-    background-image: none;
-    border: none;
-    border-radius: 3px;
-    min-height: 6px;
-}
-scale highlight {
-    background-color: #cba6f7;
-    background-image: none;
-    border: none;
-    border-radius: 3px;
-}
-scale slider {
-    background-color: #f5e0dc;
-    background-image: none;
-    border: none;
-    box-shadow: none;
-    border-radius: 50%;
-    min-width: 16px;
-    min-height: 16px;
-    margin: -6px;
-}
-"""
-
-
-def run(*args):
-    """stdout of a quick command, or "" if it fails."""
-    try:
-        return subprocess.run(args, capture_output=True, text=True,
-                              timeout=5).stdout
-    except (OSError, subprocess.SubprocessError):
-        return ""
-
-
-def run_async(callback, *args):
-    """Run a slow command without freezing the card;
-    callback(ok, stdout, stderr) fires from the main loop."""
-    try:
-        proc = Gio.Subprocess.new(list(args),
-                                  Gio.SubprocessFlags.STDOUT_PIPE
-                                  | Gio.SubprocessFlags.STDERR_PIPE)
-    except GLib.Error as err:
-        callback(False, "", err.message)
-        return
-
-    def done(proc, result):
-        try:
-            _, out, err = proc.communicate_utf8_finish(result)
-        except GLib.Error as e:
-            callback(False, "", e.message)
-            return
-        callback(proc.get_successful(), out or "", err or "")
-    proc.communicate_utf8_async(None, None, done)
-
-
-def spawn(*args):
-    """Start a program that outlives the popup."""
-    subprocess.Popen(args, start_new_session=True,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-
-def label(text, *classes, xalign=0.0, ellipsize=None):
-    lab = Gtk.Label(label=text, xalign=xalign)
-    for cls in classes:
-        lab.get_style_context().add_class(cls)
-    if ellipsize is not None:
-        lab.set_ellipsize(ellipsize)
-    return lab
-
-
-def hand(widget):
-    """Hand pointer while over `widget`; GTK3 CSS has no `cursor`. Set on
-    the toplevel, which the widget's own input window inherits it from."""
-    def set_cursor(w, _event, name):
-        win = w.get_toplevel().get_window()
-        if win is not None:
-            win.set_cursor(Gdk.Cursor.new_from_name(w.get_display(), name)
-                           if name else None)
-        return False
-    widget.connect("enter-notify-event", set_cursor, "pointer")
-    widget.connect("leave-notify-event", set_cursor, None)
-    return widget
-
-
-def button(child, *classes):
-    btn = hand(Gtk.Button())
-    btn.set_relief(Gtk.ReliefStyle.NONE)
-    btn.set_can_focus(False)
-    for cls in classes:
-        btn.get_style_context().add_class(cls)
-    btn.add(child if isinstance(child, Gtk.Widget)
-            else label(child, xalign=0.5))
-    return btn
-
-
-def tile(icon, name, sub=None, sub_bad=False):
-    """Glyph, name and an optional status line under it."""
-    end = Pango.EllipsizeMode.END
-    box = Gtk.Box(spacing=12)
-    glyph = label(icon, "icon", xalign=0.5)
-    glyph.set_size_request(24, -1)
-    box.pack_start(glyph, False, False, 0)
-    text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-    text.set_valign(Gtk.Align.CENTER)
-    text.pack_start(label(name, "name", ellipsize=end), False, False, 0)
-    if sub:
-        line = label(sub, "sub", ellipsize=end)
-        if sub_bad:
-            line.get_style_context().add_class("bad")
-        text.pack_start(line, False, False, 0)
-    box.pack_start(text, True, True, 0)
-    return box
-
-
-def row(icon, name, sub=None, on=False, sub_bad=False):
-    """A clickable full-width list row; `on` highlights it."""
-    btn = button(tile(icon, name, sub, sub_bad), "row")
-    if on:
-        btn.get_style_context().add_class("on")
-    return btn
-
-
-class Panel(Gtk.Box):
-    """A card: a title row with icon buttons, and a body that refresh()
-    rebuilds."""
-
-    title = ""
-    css = ""
-
-    def __init__(self, app):
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        self.app = app
-        # Async callbacks can land after the card was swapped out.
-        self.dead = False
-        self.connect("destroy", lambda *_: setattr(self, "dead", True))
-        self.get_style_context().add_class("card")
-        if self.css:
-            self.get_style_context().add_class(self.css)
-        self.set_size_request(CARD_W, -1)
-        self.header = Gtk.Box(spacing=8)
-        self.header.pack_start(label(self.title, "title"), True, True, 0)
-        self.pack_start(self.header, False, False, 0)
-        self.body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self.pack_start(self.body, False, False, 0)
-        self._refresh_id = None
-
-    def fill(self):
-        raise NotImplementedError
-
-    def refresh(self):
-        """Rebuild the body on idle, so a row can trigger it from its own
-        click handler; repeated calls coalesce into one rebuild."""
-        if self._refresh_id is None and not self.dead:
-            self._refresh_id = GLib.idle_add(self._rebuild)
-
-    def _rebuild(self):
-        self._refresh_id = None
-        for child in self.body.get_children():
-            child.destroy()
-        self.fill()
-        self.body.show_all()
-        return GLib.SOURCE_REMOVE
-
-    def header_button(self, glyph, tooltip, *cmd):
-        """An icon button that launches `cmd`, left of what is already
-        packed at the end of the title row."""
-        btn = button(glyph, "iconbtn")
-        btn.set_tooltip_text(tooltip)
-        btn.set_valign(Gtk.Align.CENTER)
-        btn.connect("clicked", self._launch, cmd)
-        self.header.pack_end(btn, False, False, 0)
-        return btn
-
-    def _launch(self, _btn, cmd):
-        spawn(*cmd)
-        self.app.close()
-
-
-# --- Network ---------------------------------------------------------------
-
-def nm_fields(*args):
-    """`nmcli -t` output as (key, value) pairs; nmcli escapes ':' in
-    values as '\\:', and numbers repeated keys like IP4.DNS[1]."""
-    pairs = []
-    for line in run("nmcli", "-t", *args).splitlines():
-        key, _, value = line.partition(":")
-        pairs.append((re.sub(r"\[\d+\]$", "", key),
-                      value.replace("\\:", ":")))
-    return pairs
-
-
-def link_speed(dev):
-    try:
-        with open(f"/sys/class/net/{dev}/speed") as fh:
-            mbit = int(fh.read())
-    except (OSError, ValueError):
-        return None
-    if mbit <= 0:
-        return None
-    return f"{mbit / 1000:g} Gb/s" if mbit >= 1000 else f"{mbit} Mb/s"
-
-
-def nm_split(line):
-    """Fields of one `nmcli -t` line, unescaping '\\:' inside values."""
-    return [f.replace("\\:", ":").replace("\\\\", "\\")
-            for f in re.split(r"(?<!\\):", line)]
-
-
-WIFI_LIST = ("nmcli", "-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY",
-             "device", "wifi", "list")
-
-
-def wifi_networks(listing):
-    """The strongest access point per SSID from WIFI_LIST output, the one
-    in use first, then by signal."""
-    nets = {}
-    for line in listing.splitlines():
-        in_use, ssid, signal, security = (nm_split(line) + [""] * 4)[:4]
-        if not ssid:
-            continue  # hidden network
-        net = nets.setdefault(ssid, {"ssid": ssid, "signal": 0,
-                                     "secure": False, "in_use": False})
-        if signal.isdigit():
-            net["signal"] = max(net["signal"], int(signal))
-        net["secure"] |= security.strip() not in ("", "--")
-        net["in_use"] |= in_use == "*"
-    return sorted(nets.values(),
-                  key=lambda n: (not n["in_use"], -n["signal"]))[:WIFI_MAX]
-
-
-def saved_ssids():
-    """SSIDs that have a saved NetworkManager profile."""
-    names = [f[0] for f in map(nm_split, run(
-        "nmcli", "-t", "-f", "NAME,TYPE", "connection", "show").splitlines())
-        if len(f) > 1 and f[1] == "802-11-wireless"]
-    return {nm_split(run("nmcli", "-g", "802-11-wireless.ssid", "connection",
-                         "show", name).strip())[0] for name in names}
-
-
-def wifi_icon(signal):
-    for level, key in ((75, "wifi"), (50, "wifi3"), (25, "wifi2")):
-        if signal >= level:
-            return ICON[key]
-    return ICON["wifi1"]
-
-
-def nm_error(stderr):
-    """Last line of nmcli's complaint, made readable."""
-    lines = stderr.strip().splitlines()
-    msg = lines[-1].removeprefix("Error: ") if lines else "Failed"
-    if "Secrets were required" in msg or "password" in msg.lower():
-        return "Wrong or missing password"
-    if "No network with SSID" in msg:
-        return "Out of range"
-    return msg[:60]
-
-
-class NetworkPanel(Panel):
-    title = "Network"
-
-    def __init__(self, app):
-        super().__init__(app)
-        self.pill = label("", "pill", xalign=0.5)
-        self.pill.set_valign(Gtk.Align.CENTER)
-        self.header.pack_end(self.pill, False, False, 0)
-        self.fill()
-        self.wifi_dev = next(
-            (f[0] for f in map(nm_split, run(
-                "nmcli", "-t", "-f", "DEVICE,TYPE", "device").splitlines())
-             if len(f) > 1 and f[1] == "wifi"), None)
-        if self.wifi_dev:
-            self._wireless_section()
-
-    def fill(self):
-        dev = kind = None
-        for line in run("nmcli", "-t", "-f", "DEVICE,TYPE,STATE",
-                        "device").splitlines():
-            d, t, state = (line.split(":") + ["", ""])[:3]
-            if state == "connected" and t in ("ethernet", "wifi"):
-                dev, kind = d, t
-                break
-
-        self.pill.set_text("Connected" if dev else "Disconnected")
-        ctx = self.pill.get_style_context()
-        ctx.remove_class("bad" if dev else "ok")
-        ctx.add_class("ok" if dev else "bad")
-        if dev is None:
-            self.body.pack_start(label("No active connection", "empty"),
-                                 False, False, 0)
-            return
-
-        info = {}
-        for key, value in nm_fields(
-                "-f", "GENERAL.CONNECTION,IP4.ADDRESS,IP4.GATEWAY,IP4.DNS,"
-                "IP6.ADDRESS", "device", "show", dev):
-            info.setdefault(key, []).append(value)
-        first = {k: v[0] for k, v in info.items() if v and v[0]}
-
-        about = [first.get("GENERAL.CONNECTION", dev), dev]
-        if kind == "wifi":
-            for active, ssid, signal in (
-                    (line.split(":") + ["", ""])[:3] for line in run(
-                        "nmcli", "-t", "-f", "ACTIVE,SSID,SIGNAL", "device",
-                        "wifi").splitlines()):
-                if active == "yes":
-                    about = [ssid, f"{signal}%", dev]
-        elif speed := link_speed(dev):
-            about.append(speed)
-        glyph = ICON["wifi" if kind == "wifi" else "ethernet"]
-        info_tile = tile(glyph, about[0], " · ".join(about[1:]))
-        info_tile.get_style_context().add_class("static")
-        self.body.pack_start(info_tile, False, False, 0)
-
-        ipv6 = next((a for a in info.get("IP6.ADDRESS", [])
-                     if not a.lower().startswith("fe80")), None)
-        try:
-            with open(PUBLIC_IP_CACHE) as fh:
-                pub4, _, pub6 = fh.read().strip().partition("|")
-        except OSError:
-            pub4 = pub6 = ""
-
-        self.body.pack_start(label("Local", "seclabel"), False, False, 0)
-        self._value("IPv4", first.get("IP4.ADDRESS"))
-        self._value("IPv6", ipv6)
-        self._value("Gateway", first.get("IP4.GATEWAY"))
-        self._value("DNS", ", ".join(info.get("IP4.DNS", [])))
-        self.body.pack_start(label("Public", "seclabel"), False, False, 0)
-        self._value("IPv4", pub4)
-        self._value("IPv6", pub6)
-
-    def _value(self, key, value):
-        box = Gtk.Box(spacing=12)
-        name = label(key, "key")
-        name.set_size_request(70, -1)
-        box.pack_start(name, False, False, 0)
-        # Middle, so both ends of an IPv6 address stay readable.
-        val = label(value or "—", ellipsize=Pango.EllipsizeMode.MIDDLE)
-        box.pack_start(val, True, True, 0)
-        btn = button(box, "row", "kv")
-        if value:
-            btn.connect("clicked", self._copy, val, value)
-        self.body.pack_start(btn, False, False, 0)
-
-    # --- Wireless: nearby networks, connect/disconnect, radio switch -----
-
-    def _wireless_section(self):
-        head = Gtk.Box(spacing=8)
-        head.pack_start(label("Wireless", "seclabel"), True, True, 0)
-        self.wifi_switch = hand(Gtk.Switch())
-        self.wifi_switch.set_valign(Gtk.Align.CENTER)
-        head.pack_end(self.wifi_switch, False, False, 0)
-        self.pack_start(head, False, False, 0)
-        # A box of its own: a finished scan rebuilds the list, but neither
-        # the IPs above nor a password that is being typed.
-        self.wifi = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self.pack_start(self.wifi, False, False, 0)
-        self.wifi_status = {}   # ssid -> (status text, is_error)
-        self.password_for = None
-        self.radio_target = None  # like BluetoothPanel.power_target
-        self.saved = saved_ssids()
-        self.nets = wifi_networks(run(*WIFI_LIST, "--rescan", "no"))
-        self.scanning = False
-        self._radio_id = self.wifi_switch.connect("notify::active",
-                                                  self._on_radio)
-        self.fill_wifi()
-        self._rescan()
-
-    def fill_wifi(self):
-        for child in self.wifi.get_children():
-            child.destroy()
-        on = run("nmcli", "radio", "wifi").strip() == "enabled"
-        if self.radio_target is not None:
-            if on == self.radio_target:
-                self.radio_target = None
-            else:
-                on = self.radio_target
-        with self.wifi_switch.handler_block(self._radio_id):
-            self.wifi_switch.set_active(on)
-        if on and not self.nets:
-            text = "Scanning…" if self.scanning else "No networks found"
-            self.wifi.pack_start(label(text, "empty"), False, False, 0)
-        for net in self.nets if on else []:
-            ssid = net["ssid"]
-            if ssid in self.wifi_status:
-                sub, bad = self.wifi_status[ssid]
-            elif net["in_use"]:
-                sub, bad = f"Connected · {net['signal']}%", False
-            else:
-                kind = ("Saved" if ssid in self.saved
-                        else "Secured" if net["secure"] else "Open")
-                sub, bad = f"{net['signal']}% · {kind}", False
-            btn = row(wifi_icon(net["signal"]), ssid, sub, on=net["in_use"],
-                      sub_bad=bad)
-            btn.connect("clicked", self._on_network, net)
-            self.wifi.pack_start(btn, False, False, 0)
-            if ssid == self.password_for:
-                entry = Gtk.Entry(visibility=False,
-                                  placeholder_text="Password")
-                entry.connect("activate", self._on_password, ssid)
-                self.wifi.pack_start(entry, False, False, 0)
-                GLib.idle_add(entry.grab_focus)
-        self.wifi.show_all()
-
-    def _rescan(self):
-        self.scanning = True
-        run_async(self._scan_done, *WIFI_LIST, "--rescan", "yes")
-
-    def _scan_done(self, ok, out, _err):
-        if self.dead:
-            return
-        self.scanning = False
-        if ok:
-            self.nets = wifi_networks(out)
-        if self.password_for is None:
-            self.fill_wifi()
-
-    def _on_network(self, _btn, net):
-        ssid = net["ssid"]
-        if ssid in self.wifi_status and not self.wifi_status[ssid][1]:
-            return  # already connecting/disconnecting
-        if net["in_use"]:
-            self._nmcli(ssid, "Disconnecting…",
-                        "device", "disconnect", self.wifi_dev)
-        elif net["secure"] and ssid not in self.saved:
-            # Click again to fold the password field away.
-            self.password_for = None if self.password_for == ssid else ssid
-            self.fill_wifi()
-        else:
-            self._nmcli(ssid, "Connecting…", "device", "wifi", "connect",
-                        ssid, "ifname", self.wifi_dev)
-
-    def _on_password(self, entry, ssid):
-        if not entry.get_text():
-            return
-        self.password_for = None
-        # nmcli takes the key as an argument, so it shows up in the
-        # process list for the second or two the connect takes.
-        self._nmcli(ssid, "Connecting…", "device", "wifi", "connect", ssid,
-                    "password", entry.get_text(), "ifname", self.wifi_dev)
-
-    def _nmcli(self, ssid, busy, *args):
-        self.wifi_status[ssid] = (busy, False)
-        self.fill_wifi()
-        run_async(lambda ok, _out, err: self._nmcli_done(ssid, ok, err),
-                  "nmcli", *args)
-
-    def _nmcli_done(self, ssid, ok, err):
-        if self.dead:
-            return
-        if ok:
-            self.wifi_status.pop(ssid, None)
-        else:
-            self.wifi_status[ssid] = (nm_error(err), True)
-            if "password" in self.wifi_status[ssid][0]:
-                self.password_for = ssid  # let them type it (again)
-        self.saved = saved_ssids()
-        self.nets = wifi_networks(run(*WIFI_LIST, "--rescan", "no"))
-        self.fill_wifi()
-        self.refresh()  # the connection and IPs above may have changed
-
-    def _on_radio(self, switch, _pspec):
-        self.radio_target = switch.get_active()
-        state = "on" if self.radio_target else "off"
-        run_async(self._radio_done, "nmcli", "radio", "wifi", state)
-
-    def _radio_done(self, ok, _out, _err):
-        if self.dead:
-            return
-        target, self.radio_target = self.radio_target, None
-        if ok and target:
-            self._rescan()
-        self.fill_wifi()
-
-    def _copy(self, _btn, val, value):
-        spawn("wl-copy", "--", value.split("/")[0])  # no prefix length
-        val.set_text("Copied")
-        val.get_style_context().add_class("copied")
-
-        def restore():
-            val.set_text(value)
-            val.get_style_context().remove_class("copied")
-        GLib.timeout_add(1200, restore)
-
-
-# --- Bluetooth -------------------------------------------------------------
-
-DEVICE_ICONS = {
-    "audio-headset": "headphones",
-    "audio-headphones": "headphones",
-    "audio-card": "speaker",
-    "phone": "phone",
-    "input-keyboard": "keyboard",
-    "input-mouse": "mouse",
-    "input-tablet": "mouse",
-    "input-gaming": "gamepad",
-    "computer": "computer",
-}
-
-
-def prop(proxy, name, default=None):
-    value = proxy.get_cached_property(name) if proxy else None
-    return default if value is None else value.unpack()
-
-
-def short_error(err):
-    """'GDBus.Error:org.bluez.Error.Failed: br-connection-page-timeout'
-    -> something a person can read."""
-    msg = err.message.rsplit(": ", 1)[-1]
-    if "page-timeout" in msg or "Host is down" in msg:
-        return "Not in range or switched off"
-    return msg[:60]
-
-
-class BluetoothPanel(Panel):
-    title = "Bluetooth"
-    css = "bluetooth"
-
-    def __init__(self, app):
-        super().__init__(app)
-        self.pending = {}   # device path -> (status text, is_error)
-        self.power_error = None
-        self.power_target = None  # Powered value asked for, until reported
-        self.switch = hand(Gtk.Switch())
-        self.switch.set_valign(Gtk.Align.CENTER)
-        self.header.pack_end(self.switch, False, False, 0)
-        self._switch_id = self.switch.connect("notify::active",
-                                              self._on_power)
-        try:
-            self.bluez = Gio.DBusObjectManagerClient.new_for_bus_sync(
-                Gio.BusType.SYSTEM, Gio.DBusObjectManagerClientFlags.NONE,
-                "org.bluez", "/", None, None, None)
-        except GLib.Error:
-            self.bluez = None
-        else:
-            for signal in ("object-added", "object-removed",
-                           "interface-proxy-properties-changed"):
-                self.bluez.connect(signal, lambda *_: self.refresh())
-        self.header_button(ICON["add"], "Pair new device", "blueman-manager")
-        self.fill()
-
-    def _proxies(self, iface):
-        if self.bluez is None:
-            return []
-        return [p for o in self.bluez.get_objects()
-                if (p := o.get_interface(iface)) is not None]
-
-    def fill(self):
-        adapters = self._proxies("org.bluez.Adapter1")
-        adapter = adapters[0] if adapters else None
-        powered = bool(prop(adapter, "Powered", False))
-        # BlueZ sends a burst of property changes while it powers up or
-        # down; rebuilding from those would yank the switch back to the old
-        # state and forth again, so it stays where it was put until BlueZ
-        # reports the new state (or gives up, see _power_done).
-        if self.power_target is not None:
-            if powered == self.power_target:
-                self.power_target = None
-            else:
-                powered = self.power_target
-        with self.switch.handler_block(self._switch_id):
-            self.switch.set_active(powered)
-        self.switch.set_sensitive(adapter is not None)
-        if adapter is None:
-            text = "Bluetooth service is not running"
-        elif not powered:
-            text = "Bluetooth is off"
-        else:
-            text = None
-        if self.power_error:
-            self.body.pack_start(label(self.power_error, "empty", "bad"),
-                                 False, False, 0)
-        if text:
-            self.body.pack_start(label(text, "empty"), False, False, 0)
-            return
-
-        batteries = {p.get_object_path(): prop(p, "Percentage")
-                     for p in self._proxies("org.bluez.Battery1")}
-        devices = [d for d in self._proxies("org.bluez.Device1")
-                   if prop(d, "Paired", False)]
-        devices.sort(key=lambda d: (not prop(d, "Connected", False),
-                                    str(prop(d, "Alias", "")).lower()))
-        for dev in devices:
-            path = dev.get_object_path()
-            connected = bool(prop(dev, "Connected", False))
-            if path in self.pending:
-                sub, bad = self.pending[path]
-            elif connected:
-                sub, bad = "Connected", False
-                if batteries.get(path) is not None:
-                    sub += f" · {batteries[path]}%"
-            else:
-                sub, bad = "Not connected", False
-            glyph = ICON[DEVICE_ICONS.get(prop(dev, "Icon", ""), "bluetooth")]
-            btn = row(glyph, prop(dev, "Alias", path), sub, on=connected,
-                      sub_bad=bad)
-            btn.connect("clicked", self._toggle, dev, connected)
-            self.body.pack_start(btn, False, False, 0)
-        if not devices:
-            self.body.pack_start(label("No paired devices", "empty"),
-                                 False, False, 0)
-
-    def _toggle(self, _btn, dev, connected):
-        path = dev.get_object_path()
-        if path in self.pending and not self.pending[path][1]:
-            return  # already connecting/disconnecting
-        self.pending[path] = (
-            "Disconnecting…" if connected else "Connecting…", False)
-        dev.call("Disconnect" if connected else "Connect", None,
-                 Gio.DBusCallFlags.NONE, 30000, None, self._done, path)
-        self.refresh()
-
-    def _done(self, dev, result, path):
-        try:
-            dev.call_finish(result)
-            self.pending.pop(path, None)
-        except GLib.Error as err:
-            self.pending[path] = (short_error(err), True)
-        self.refresh()
-
-    def _on_power(self, switch, _pspec):
-        adapters = self._proxies("org.bluez.Adapter1")
-        if not adapters:
-            return
-        self.power_target = switch.get_active()
-        args = GLib.Variant("(ssv)", ("org.bluez.Adapter1", "Powered",
-                                      GLib.Variant("b", self.power_target)))
-        adapters[0].call("org.freedesktop.DBus.Properties.Set", args,
-                         Gio.DBusCallFlags.NONE, 5000, None,
-                         self._power_done, None)
-
-    def _power_done(self, adapter, result, _data):
-        try:
-            adapter.call_finish(result)
-            self.power_error = None
-        except GLib.Error as err:
-            self.power_error = short_error(err)
-            self.power_target = None  # show the real state again
-        else:
-            # Normally cleared by fill() once BlueZ reports the new state.
-            GLib.timeout_add_seconds(3, self._forget_power_target)
-        self.refresh()
-
-    def _forget_power_target(self):
-        self.power_target = None
-        self.refresh()
-        return GLib.SOURCE_REMOVE
-
-
-# --- Sound -----------------------------------------------------------------
-
-def sinks():
-    """(id, friendly name, device.api) of every sink; node.nick is the
-    short name ("LG TV SSCR2", "KM-Bose")."""
-    try:
-        dump = json.loads(run("pw-dump") or "[]")
-    except ValueError:
-        return []
-    out = []
-    for obj in dump:
-        props = (obj.get("info") or {}).get("props") or {}
-        if (props.get("media.class") != "Audio/Sink"
-                or props.get("node.name") == "auto_null"):
-            continue
-        name = (props.get("node.nick") or props.get("node.description")
-                or props.get("node.name"))
-        out.append((obj["id"], name, props.get("device.api", "")))
-    return out
-
-
-def default_sink():
-    first = run("wpctl", "inspect", "@DEFAULT_AUDIO_SINK@").partition("\n")[0]
-    m = re.search(r"id (\d+)", first)
-    return int(m.group(1)) if m else None
-
-
-def volume():
-    """(percent, muted) of the default sink; wpctl prints
-    'Volume: 0.45' or 'Volume: 0.45 [MUTED]'."""
-    out = run("wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@")
-    m = re.search(r"Volume: ([\d.]+)", out)
-    return (round(float(m.group(1)) * 100) if m else 0, "[MUTED]" in out)
-
-
-def sink_icon(name, api):
-    if api == "bluez5":
-        return ICON["bt-audio"]
-    if "TV" in name or "HDMI" in name:
-        return ICON["tv"]
-    return ICON["volume"]
-
-
-class SoundPanel(Panel):
-    """Volume of the default sink plus the sink picker. Picking the sink is
-    worth the primary click because `play` keys its whole behaviour (Atmos
-    bitstreaming, 4K/HDR mode switch) off which sink is default."""
-
-    title = "Sound"
-    css = "sound"
-
-    def __init__(self, app):
-        super().__init__(app)
-        self.mute = button("", "iconbtn")
-        self.mute.set_valign(Gtk.Align.CENTER)
-        self.mute.connect("clicked", self._on_mute)
-        self.header.pack_end(self.mute, False, False, 0)
-        self.header_button(ICON["mixer"], "Mixer", "pavucontrol")
-
-        slider = Gtk.Box(spacing=12)
-        self.scale = Gtk.Scale.new_with_range(
-            Gtk.Orientation.HORIZONTAL, 0, 100, 1)
-        self.scale.set_draw_value(False)
-        self.scale.set_can_focus(False)
-        hand(self.scale)
-        self.pct = label("", xalign=1.0)
-        self.pct.set_width_chars(4)
-        slider.pack_start(self.scale, True, True, 0)
-        slider.pack_start(self.pct, False, False, 0)
-        self.pack_start(slider, False, False, 0)
-        self.reorder_child(slider, 1)
-        self._scale_id = self.scale.connect("value-changed", self._on_scale)
-        self._volume_id = None
-
-        self.fill()
-
-    def fill(self):
-        pct, muted = volume()
-        with self.scale.handler_block(self._scale_id):
-            self.scale.set_value(pct)
-        self.pct.set_text(f"{pct}%")
-        self.mute.get_child().set_text(ICON["muted" if muted else "volume"])
-        ctx = self.mute.get_style_context()
-        (ctx.add_class if muted else ctx.remove_class)("on")
-
-        self.body.pack_start(label("Output", "seclabel"), False, False, 0)
-        current = default_sink()
-        found = sinks()
-        for sid, name, api in found:
-            btn = row(sink_icon(name, api), name, on=sid == current)
-            btn.connect("clicked", self._on_sink, sid)
-            self.body.pack_start(btn, False, False, 0)
-        if not found:
-            self.body.pack_start(label("No outputs", "empty"),
-                                 False, False, 0)
-
-    def _on_sink(self, _btn, sid):
-        # Running streams follow the default sink in PipeWire.
-        run("wpctl", "set-default", str(sid))
-        self.refresh()
-
-    def _on_mute(self, _btn):
-        run("wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle")
-        self.refresh()
-
-    def _on_scale(self, scale):
-        self.pct.set_text(f"{int(scale.get_value())}%")
-        # Dragging fires far more often than wpctl needs to run.
-        if self._volume_id is None:
-            self._volume_id = GLib.timeout_add(40, self._apply_volume)
-
-    def _apply_volume(self):
-        self._volume_id = None
-        level = self.scale.get_value() / 100
-        run("wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{level:.2f}")
-        if self.mute.get_style_context().has_class("on"):
-            run("wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "0")
-            self.mute.get_child().set_text(ICON["volume"])
-            self.mute.get_style_context().remove_class("on")
-        return GLib.SOURCE_REMOVE
-
-
-# --- Display ---------------------------------------------------------------
-
-TIME_STEP = 30  # min per click on a schedule stepper
-
-
-def slider(lo, hi, step):
-    scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, lo, hi, step)
-    scale.set_draw_value(False)
-    scale.set_can_focus(False)
-    return hand(scale)
-
-
-def slider_row(icon, name, scale, value):
-    """Glyph, name, slider and its value, aligned with the switch rows."""
-    box = Gtk.Box(spacing=12)
-    box.get_style_context().add_class("slider")
-    glyph = label(icon, "icon", xalign=0.5)
-    glyph.set_size_request(24, -1)
-    box.pack_start(glyph, False, False, 0)
-    title = label(name, ellipsize=Pango.EllipsizeMode.END)
-    title.set_size_request(62, -1)
-    box.pack_start(title, False, False, 0)
-    box.pack_start(scale, True, True, 0)
-    value.set_width_chars(6)
-    value.set_xalign(1.0)
-    box.pack_start(value, False, False, 0)
-    return box
-
-
-class DisplayPanel(Panel):
-    """Evening mode (warm tint and lower brightness on a schedule, run by
-    `nightlight daemon`) and each monitor's own brightness over DDC/CI."""
-
-    title = "Display"
-    css = "display"
-
-    def __init__(self, app):
-        super().__init__(app)
-        self.header_button(
-            ICON["screen-off"], "Turn the screens off", "sh", "-c",
-            # A second for the hand to leave the mouse: moving it wakes them.
-            "sleep 1; hyprctl dispatch 'hl.dsp.dpms({ action = \"off\" })'")
-        self.state = nightlight.load()
-        self.dimmed = nightlight.read_json(nightlight.DIMMED, {})
-        self._warmth_id = None
-        self.want = {}    # bus -> brightness asked for
-        self.busy = set()  # buses with a ddcutil write in flight
-        self.fill()
-        # The daemon flips evening mode at the switch times, and the bar's
-        # right click toggles it; follow either while the card is open.
-        self._poll_id = GLib.timeout_add_seconds(1, self._poll)
-        self.connect("destroy", lambda *_: GLib.source_remove(self._poll_id))
-
-    def fill(self):
-        # Evening mode: on/off, then how warm, then when.
-        evening, self.evening_sub, self.evening_switch = self._switch_row(
-            ICON["night"], "Evening mode")
-        self.body.pack_start(evening, False, False, 0)
-        self._evening_id = self.evening_switch.connect(
-            "notify::active", self._on_evening)
-
-        self.warmth = slider(nightlight.WARMTH_MIN, nightlight.WARMTH_MAX, 100)
-        self.warmth_val = label("")
-        self.body.pack_start(slider_row(ICON["warmth"], "Warmth",
-                                        self.warmth, self.warmth_val),
-                             False, False, 0)
-        self._warmth_scale_id = self.warmth.connect("value-changed",
-                                                    self._on_warmth)
-
-        schedule, _, self.auto_switch = self._switch_row(
-            ICON["schedule"], "Schedule", sub=False)
-        self.body.pack_start(schedule, False, False, 0)
-        self._auto_id = self.auto_switch.connect("notify::active",
-                                                 self._on_auto)
-        self.steppers = Gtk.Box(spacing=4)
-        self.steppers.get_style_context().add_class("steppers")
-        self.start_val = self._stepper("start")
-        self.steppers.pack_start(label("to", "sub"), False, False, 6)
-        self.end_val = self._stepper("end")
-        self.body.pack_start(self.steppers, False, False, 0)
-        self.sync()
-
-        self.body.pack_start(label("Brightness", "seclabel"), False, False, 0)
-        self.monitors = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self.monitors.pack_start(label("Asking the monitors…", "empty"),
-                                 False, False, 0)
-        self.body.pack_start(self.monitors, False, False, 0)
-        self._find_monitors()
-
-    def _switch_row(self, icon, name, sub=True):
-        box = Gtk.Box(spacing=12)
-        box.get_style_context().add_class("static")
-        glyph = label(icon, "icon", xalign=0.5)
-        glyph.set_size_request(24, -1)
-        box.pack_start(glyph, False, False, 0)
-        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        text.set_valign(Gtk.Align.CENTER)
-        text.pack_start(label(name, "name"), False, False, 0)
-        line = label("", "sub") if sub else None
-        if line:
-            text.pack_start(line, False, False, 0)
-        box.pack_start(text, True, True, 0)
-        switch = hand(Gtk.Switch())
-        switch.set_valign(Gtk.Align.CENTER)
-        box.pack_end(switch, False, False, 0)
-        return box, line, switch
-
-    def _stepper(self, key):
-        """− HH:MM +, moving the schedule's `key` time by TIME_STEP."""
-        value = label("", "time", xalign=0.5)
-        value.set_width_chars(5)
-        for glyph, step in ((ICON["minus"], -TIME_STEP), (None, 0),
-                            (ICON["plus"], TIME_STEP)):
-            if glyph is None:
-                self.steppers.pack_start(value, False, False, 0)
-                continue
-            btn = button(glyph, "iconbtn", "mini")
-            btn.connect("clicked", self._on_step, key, step)
-            self.steppers.pack_start(btn, False, False, 0)
-        return value
-
-    # --- evening mode ----------------------------------------------------
-
-    def sync(self):
-        """Show self.state."""
-        st = self.state
-        with self.evening_switch.handler_block(self._evening_id):
-            self.evening_switch.set_active(st["on"])
-        with self.auto_switch.handler_block(self._auto_id):
-            self.auto_switch.set_active(st["auto"])
-        with self.warmth.handler_block(self._warmth_scale_id):
-            self.warmth.set_value(self._kelvin(st["warmth"]))
-        self.warmth_val.set_text(f"{st['warmth']} K")
-        self.start_val.set_text(st["start"])
-        self.end_val.set_text(st["end"])
-        self.steppers.set_sensitive(st["auto"])
-
-        evening = nightlight.in_evening(st)
-        if st["on"] and nightlight.paused():
-            sub = "Paused while a film plays on the TV"
-        elif st["on"]:
-            sub = f"On until {st['end']}" if st["auto"] and evening else "On"
-        elif st["auto"]:
-            sub = "Off for tonight" if evening else f"From {st['start']}"
-        else:
-            sub = "Off"
-        self.evening_sub.set_text(sub)
-
-    def _write(self, **changes):
-        """Save to the state file and wake the daemon, which applies it.
-        Turning the schedule on or moving it means following it right away,
-        as the daemon would."""
-        st = self.state
-        st.update(changes)
-        if st["auto"] and ({"auto", "start", "end"} & changes.keys()):
-            st["on"] = changes["on"] = nightlight.in_evening(st)
-        nightlight.update(**changes)
-        self.sync()
-
-    def _poll(self):
-        current = nightlight.load()
-        if current != self.state:
-            self.state = current
-            self.sync()
-        # The daemon has just dimmed or restored the monitors: show it.
-        dimmed = nightlight.read_json(nightlight.DIMMED, {})
-        if dimmed != self.dimmed:
-            self.dimmed = dimmed
-            self._find_monitors()
-        return GLib.SOURCE_CONTINUE
-
-    def _on_evening(self, switch, _pspec):
-        self._write(on=switch.get_active())
-
-    def _on_auto(self, switch, _pspec):
-        self._write(auto=switch.get_active())
-
-    def _on_step(self, _btn, key, step):
-        mins = nightlight.minutes(self.state[key]) + step
-        self._write(**{key: nightlight.hhmm(mins % 1440)})
-
-    @staticmethod
-    def _kelvin(value):
-        """Slider position <-> K, both ways: further right is warmer, which
-        is fewer K, and the fill grows from the left like the others."""
-        return nightlight.WARMTH_MIN + nightlight.WARMTH_MAX - int(value)
-
-    def _on_warmth(self, scale):
-        self.warmth_val.set_text(f"{self._kelvin(scale.get_value())} K")
-        # Every write is a colour-matrix commit; a drag needs far fewer.
-        if self._warmth_id is None:
-            self._warmth_id = GLib.timeout_add(60, self._apply_warmth)
-
-    def _apply_warmth(self):
-        self._warmth_id = None
-        self._write(warmth=self._kelvin(self.warmth.get_value()))
-        return GLib.SOURCE_REMOVE
-
-    # --- brightness over DDC/CI -----------------------------------------
-
-    def _find_monitors(self):
-        """Read each monitor's brightness; `ddcutil detect` takes most of a
-        second, so its bus numbers are kept for the session and only looked
-        up again when a read fails."""
-        buses = nightlight.read_json(nightlight.DDC_CACHE, None)
-        if buses:
-            self._read_all(buses, cached=True)
-        else:
-            run_async(self._detected, "ddcutil", "detect", "--terse")
-
-    def _detected(self, _ok, out, _err):
-        if self.dead:
-            return
-        buses = nightlight.parse_detect(out)
-        try:
-            nightlight.write_json(nightlight.DDC_CACHE, buses)
-        except OSError:
-            pass
-        self._read_all(buses, cached=False)
-
-    def _read_all(self, buses, cached):
-        if not buses:
-            self._show_monitors({}, {})
-            return
-        found = {}
-
-        def got(ok, out, _err, conn):
-            if self.dead:
-                return
-            found[conn] = nightlight.parse_brightness(out) if ok else None
-            if len(found) < len(buses):
-                return
-            if cached and None in found.values():
-                # Stale bus numbers (a monitor moved ports): look again.
-                run_async(self._detected, "ddcutil", "detect", "--terse")
-            else:
-                self._show_monitors(buses, found)
-
-        for conn, bus in buses.items():
-            run_async(lambda ok, out, err, conn=conn: got(ok, out, err, conn),
-                      "ddcutil", "--bus", str(bus), "--skip-ddc-checks",
-                      "getvcp", "10", "--brief")
-
-    def _show_monitors(self, buses, found):
-        for child in self.monitors.get_children():
-            child.destroy()
-        try:
-            hypr = {m["name"]: m for m in json.loads(
-                run("hyprctl", "-j", "monitors") or "[]")}
-        except ValueError:
-            hypr = {}
-        # Left to right, the way they stand on the desk.
-        shown = sorted((c for c in buses if found.get(c) and c in hypr),
-                       key=lambda c: (hypr[c]["x"], hypr[c]["y"]))
-        for conn in shown:
-            bus, (level, top) = buses[conn], found[conn]
-            scale = slider(0, top, 1)
-            scale.set_value(level)
-            pct = label(f"{round(100 * level / top)}%")
-            scale.connect("value-changed", self._on_brightness, bus, top, pct)
-            self.monitors.pack_start(
-                slider_row(ICON["monitor"], hypr[conn].get("model") or conn,
-                           scale, pct), False, False, 0)
-        if not shown:
-            self.monitors.pack_start(label("No monitor answers DDC/CI",
-                                           "empty"), False, False, 0)
-        self.monitors.show_all()
-
-    def _on_brightness(self, scale, bus, top, pct):
-        level = int(scale.get_value())
-        pct.set_text(f"{round(100 * level / top)}%")
-        # One write at a time per monitor (~150 ms each); a drag only
-        # needs to end on the last value.
-        self.want[bus] = level
-        if bus not in self.busy:
-            self._set_brightness(bus)
-
-    def _set_brightness(self, bus):
-        level = self.want[bus]
-        self.busy.add(bus)
-        run_async(lambda *_: self._brightness_set(bus, level),
-                  "ddcutil", "--bus", str(bus), "--skip-ddc-checks",
-                  "--noverify", "setvcp", "10", str(level))
-
-    def _brightness_set(self, bus, level):
-        self.busy.discard(bus)
-        if self.want[bus] != level:
-            self._set_brightness(bus)
-
-
-# --- The popup window ------------------------------------------------------
+from gi.repository import Gdk, Gio, GLib, Gtk, GtkLayerShell  # noqa: E402
+
+# Next to this file; on PYTHONPATH when packaged.
+import cardkit  # noqa: E402
+import card_attention  # noqa: E402
+import card_battery  # noqa: E402
+import card_bluetooth  # noqa: E402
+import card_calendar  # noqa: E402
+import card_display  # noqa: E402
+import card_network  # noqa: E402
+import card_pomodoro  # noqa: E402
+import card_power  # noqa: E402
+import card_sound  # noqa: E402
+import card_system  # noqa: E402
+import card_weather  # noqa: E402
+import osd  # noqa: E402
+from cardkit import CARD_TOP, CARD_W, EDGE, run, run_async  # noqa: E402
 
 PANELS = {
-    "network": NetworkPanel,
-    "bluetooth": BluetoothPanel,
-    "sound": SoundPanel,
-    "display": DisplayPanel,
+    "network": card_network.NetworkPanel,
+    "bluetooth": card_bluetooth.BluetoothPanel,
+    "sound": card_sound.SoundPanel,
+    "display": card_display.DisplayPanel,
+    "weather": card_weather.WeatherPanel,
+    "calendar": card_calendar.CalendarPanel,
+    "pomodoro": card_pomodoro.PomodoroPanel,
+    "power": card_power.PowerPanel,
+    "battery": card_battery.BatteryPanel,
+    "system": card_system.SystemPanel,
+    "attention": card_attention.AttentionPanel,
 }
+
+# The layer namespaces Hyprland's layer rules match (hyprland.lua). The
+# card's surface is kept out of screen shares and screenshots, which paint
+# such a surface black over its whole size: that is why the card has a
+# surface of its own, apart from the transparent ones over each monitor
+# that catch the clicks beside it.
+NAMESPACE = "bar-popup"
+BACKDROP = "bar-popup-backdrop"
+
+# The base stylesheet, then each card's own in PANELS order: of two rules
+# that match alike, the later one wins, so a card can restyle the base.
+CSS = cardkit.CSS + b"".join(
+    sys.modules[panel.__module__].CSS for panel in PANELS.values())
 
 
 def cursor():
     """Global cursor position from Hyprland: a Wayland client cannot read
-    the pointer before it has a surface under it."""
+    the pointer before it has a surface under it. Its socket answers in
+    ~0.1 ms; hyprctl, ~30 ms to start, only where the socket can't be
+    reached."""
+    pos = osd.hyprland("j/cursorpos")
     try:
-        pos = json.loads(run("hyprctl", "-j", "cursorpos"))
+        if pos is None:
+            pos = json.loads(run("hyprctl", "-j", "cursorpos"))
         return pos["x"], pos["y"]
     except (ValueError, KeyError, TypeError):
         return None
@@ -1273,12 +106,63 @@ def monitor_at(point):
     return display.get_primary_monitor() or display.get_monitor(0)
 
 
+def focusable(widget):
+    """The controls in `widget` that the keyboard can reach now, in the
+    order of the widget tree."""
+    found = []
+    if (widget.get_can_focus() and widget.get_mapped()
+            and widget.is_sensitive()):
+        found.append(widget)
+    if isinstance(widget, Gtk.Container):
+        for child in widget.get_children():
+            found += focusable(child)
+    return found
+
+
+def names(widget):
+    """The name lines (cardkit.tile's .name labels) in `widget`."""
+    if isinstance(widget, Gtk.Label):
+        return ([widget.get_text()]
+                if widget.get_style_context().has_class("name") else [])
+    if isinstance(widget, Gtk.Container):
+        return [n for child in widget.get_children() for n in names(child)]
+    return []
+
+
+def focus_key(widget):
+    """What tells a control again once its card has rebuilt it: its kind
+    and the name its row shows. A list row has a name line of its own; a
+    control beside one (a network's Forget, a switch) goes by its tooltip
+    and the name line of the row it sits in."""
+    kind = type(widget).__name__
+    own = names(widget)
+    if own:
+        return kind, tuple(own)
+    return kind, widget.get_tooltip_text(), tuple(names(widget.get_parent()))
+
+
 class PopupApp(Gtk.Application):
     def __init__(self):
         super().__init__(application_id="com.kirill.barpopup",
                          flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
-        self.win = None
-        self.name = None
+        self.win = None      # the card's window
+        self.name = None     # its PANELS key
+        self.backdrops = []  # the click catchers, one per monitor
+        self.press = None    # the card window's pointer-press gesture
+        self.focused = None  # (focus_key, place) of the focused control
+        # What bar-popup.sh calls once this process runs, through
+        # org.freedesktop.Application.ActivateAction: "toggle" with a
+        # card's name for a click, "key" for a key binding, and "close".
+        toggle = Gio.SimpleAction.new("toggle", GLib.VariantType.new("s"))
+        toggle.connect("activate",
+                       lambda _action, name: self.toggle(name.get_string()))
+        key = Gio.SimpleAction.new("key", GLib.VariantType.new("s"))
+        key.connect("activate", lambda _action, name: self.toggle(
+            name.get_string(), key=True))
+        close = Gio.SimpleAction.new("close", None)
+        close.connect("activate", lambda *_: self.close())
+        for action in (toggle, key, close):
+            self.add_action(action)
 
     def do_startup(self):
         Gtk.Application.do_startup(self)
@@ -1287,84 +171,184 @@ class PopupApp(Gtk.Application):
         Gtk.StyleContext.add_provider_for_screen(
             Gdk.Screen.get_default(), provider,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        # Stay without a window, so the next click finds Python, GTK and
+        # the cards loaded: an application with no window and no hold
+        # quits.
+        self.hold()
 
     def do_command_line(self, cmdline):
+        """bar-popup-host's own arguments: those bar-popup.sh passes on
+        while no host runs, or a second host's, which GApplication hands
+        over to this one."""
         args = cmdline.get_arguments()[1:]
-        name = args[0] if args else ""
-        if name not in PANELS:
-            cmdline.printerr(f"usage: bar-popup {'|'.join(PANELS)}\n")
+        if args == ["close"]:
+            self.close()
+            return 0
+        if not args or args[0] not in PANELS or args[1:] not in ([],
+                                                                 ["--key"]):
+            # printerr() is printf-style, so it has no Python binding; the
+            # literal one (GLib 2.80) reaches the stderr of the process that
+            # ran the command, which usually isn't this one.
+            cmdline.printerr_literal(
+                f"usage: bar-popup {'|'.join(PANELS)} [--key] | close\n")
             return 2
-        if self.win is not None and name == self.name:
-            self.close()  # second click on the same module
-        else:
-            self.open(name)
+        self.toggle(args[0], key=args[1:] == ["--key"])
         return 0
 
-    def open(self, name):
+    def toggle(self, name, key=False):
+        """A click on the module `name` (key: its key binding): its card
+        opens, or closes if it is the one open; another card makes way."""
+        if name not in PANELS:
+            print(f"bar-popup: no card {name!r}", file=sys.stderr)
+        elif self.win is not None and name == self.name:
+            self.close()  # second click on the same module
+        else:
+            self.open(name, key)
+
+    def open(self, name, key=False):
+        # Where the pointer is now, before anything else takes time.
         point = cursor()
+        # One popup at a time: swaync's panel goes (a no-op while closed).
+        run_async(lambda *_: None,
+                  "swaync-client", "--close-panel", "--skip-wait")
         monitor = monitor_at(point)
         geo = monitor.get_geometry()
 
+        card = PANELS[name](self)
+        win = self._layer(monitor, NAMESPACE)
+        # Hyprland hands an on-demand layer surface the keyboard focus as
+        # it maps, so a card opened by a click or a key binding takes keys
+        # at once.
+        GtkLayerShell.set_keyboard_mode(
+            win, GtkLayerShell.KeyboardMode.ON_DEMAND)
+        # Centre the card on the click, kept inside the monitor, or, opened
+        # by a key, put it at the bar's right end. Anchored to the top
+        # left with no exclusive zone of its own, the surface sits in the
+        # space under the bar, and the margins place it there.
+        x = (point[0] - geo.x if point and not key
+             else geo.width) - CARD_W // 2
+        GtkLayerShell.set_anchor(win, GtkLayerShell.Edge.TOP, True)
+        GtkLayerShell.set_anchor(win, GtkLayerShell.Edge.LEFT, True)
+        GtkLayerShell.set_margin(win, GtkLayerShell.Edge.TOP, CARD_TOP)
+        GtkLayerShell.set_margin(win, GtkLayerShell.Edge.LEFT,
+                                 max(EDGE, min(x, geo.width - CARD_W - EDGE)))
+        # As big as the card, also when a rebuild makes it shorter: a
+        # resizable window only ever grows.
+        win.set_resizable(False)
+        win.add(card)
+        win.connect("key-press-event", self._on_key)
+        # The backdrops first, so the card's surface goes over them; a
+        # swap keeps them.
+        if not self.backdrops:
+            self._backdrops()
+        win.show_all()
+        self._keyboard(win, card)
+
+        # The new card first, then the old one goes: no frame without a
+        # card in between.
+        old, self.win, self.name = self.win, win, name
+        if old is not None:
+            old.destroy()
+
+    def _layer(self, monitor, namespace):
+        """A transparent window on the overlay layer of `monitor`."""
         win = Gtk.Window(application=self)
         win.set_app_paintable(True)
         visual = win.get_screen().get_rgba_visual()
         if visual is not None:
             win.set_visual(visual)
         GtkLayerShell.init_for_window(win)
+        GtkLayerShell.set_namespace(win, namespace)
         GtkLayerShell.set_layer(win, GtkLayerShell.Layer.OVERLAY)
         GtkLayerShell.set_monitor(win, monitor)
-        # Anchored to every edge but with no exclusive zone of its own, so
-        # it fills the output *below* the bar: the bar stays clickable,
-        # which is what lets a second click toggle or switch panels.
-        for edge in (GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM,
-                     GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.RIGHT):
-            GtkLayerShell.set_anchor(win, edge, True)
-        GtkLayerShell.set_keyboard_mode(
-            win, GtkLayerShell.KeyboardMode.ON_DEMAND)
+        return win
 
-        card = PANELS[name](self)
-        # Centre the card on the click, kept inside the monitor. The
-        # EventBox swallows presses so clicks on the card don't reach the
-        # backdrop behind it.
-        x = (point[0] - geo.x if point else geo.width) - CARD_W // 2
-        card_wrap = Gtk.EventBox()
-        card_wrap.set_halign(Gtk.Align.START)
-        card_wrap.set_valign(Gtk.Align.START)
-        card_wrap.set_margin_top(CARD_TOP)
-        card_wrap.set_margin_start(
-            max(EDGE, min(x, geo.width - CARD_W - EDGE)))
-        card_wrap.connect("button-press-event", lambda *_: True)
-        card_wrap.add(card)
-
-        backdrop = Gtk.EventBox()
-        backdrop.get_style_context().add_class("backdrop")
-        backdrop.connect("button-press-event", lambda *_: self.close())
-        # A concrete size so the window maps (an empty EventBox is 0x0).
-        backdrop.set_size_request(geo.width, geo.height)
-
-        overlay = Gtk.Overlay()
-        overlay.add(backdrop)
-        overlay.add_overlay(card_wrap)
-        win.add(overlay)
-        win.connect("key-press-event", self._on_key)
-        win.show_all()
-
-        # Swap only after the new window exists: dropping to zero windows
-        # in between would end the application.
-        old, self.win, self.name = self.win, win, name
-        if old is not None:
-            old.destroy()
+    def _backdrops(self):
+        """A window over each monitor that closes the card on a press, so
+        a click anywhere but on the card closes it, on any monitor. Each
+        is anchored to every edge but has no exclusive zone of its own, so
+        it fills the output *below* the bar: the bar stays clickable,
+        which is what lets a second click toggle or swap cards. No
+        keyboard: the card keeps it."""
+        display = Gdk.Display.get_default()
+        for i in range(display.get_n_monitors()):
+            win = self._layer(display.get_monitor(i), BACKDROP)
+            for edge in (GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM,
+                         GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.RIGHT):
+                GtkLayerShell.set_anchor(win, edge, True)
+            catcher = Gtk.EventBox()
+            catcher.get_style_context().add_class("backdrop")
+            catcher.connect("button-press-event", lambda *_: self.close())
+            win.add(catcher)
+            win.show_all()
+            self.backdrops.append(win)
 
     def close(self):
         if self.win is not None:
             win, self.win, self.name = self.win, None, None
             win.destroy()
+        for backdrop in self.backdrops:
+            backdrop.destroy()
+        self.backdrops = []
 
     def _on_key(self, _win, event):
         if event.keyval == Gdk.KEY_Escape:
             self.close()
             return True
         return False
+
+    def _keyboard(self, win, card):
+        """GTK gives the first control the focus as the window shows; take
+        it back, so that the first key says where to start (Tab: the first
+        control, Shift+Tab the last, ↓ the top one, ↑ the bottom one) and a
+        stray Enter does nothing. GTK shows the focus ring from the first
+        key press on; a press of the pointer hides it again and drops the
+        focus, so the ring never stays on one control while the pointer
+        works another. (A slider still takes the focus when clicked,
+        without a ring, so the arrow keys go on from there.)"""
+        win.set_focus(None)
+        self.focused = None
+        # In the capture phase the window sees a press before the control
+        # under the pointer does; claiming nothing, it leaves it to that
+        # control. A GTK 3 widget holds no reference to its gestures.
+        self.press = Gtk.GestureMultiPress.new(win)
+        self.press.set_button(0)  # any button
+        self.press.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        self.press.connect("pressed", self._on_press)
+        win.connect("set-focus", self._on_set_focus, card)
+
+    @staticmethod
+    def _on_press(gesture, _n, _x, _y):
+        win = gesture.get_widget()
+        win.set_focus_visible(False)
+        win.set_focus(None)
+
+    def _on_set_focus(self, win, widget, card):
+        """Keep track of the focus. A card that rebuilds a list, or hides a
+        button, takes the focused control with it; GTK then leaves nothing
+        focused, and _refocus finds the place again."""
+        if widget is not None:
+            chain = focusable(card)
+            self.focused = ((focus_key(widget), chain.index(widget))
+                            if widget in chain else None)
+        elif win.get_focus() is not None:  # still the one losing it
+            GLib.idle_add(self._refocus, win, card, win.get_focus())
+
+    def _refocus(self, win, card, old):
+        """After the rebuild, while the keyboard is in use: the control
+        with the same key (the nearest, of several), else the one now at
+        the old place."""
+        if (not card.dead and win.get_focus() is None
+                and win.get_focus_visible() and self.focused is not None
+                and not (old.is_ancestor(card) and old.get_mapped())):
+            key, at = self.focused
+            chain = focusable(card)
+            same = [i for i, w in enumerate(chain) if focus_key(w) == key]
+            if same:
+                chain[min(same, key=lambda i: abs(i - at))].grab_focus()
+            elif chain:
+                chain[min(at, len(chain) - 1)].grab_focus()
+        return GLib.SOURCE_REMOVE
 
 
 def main():

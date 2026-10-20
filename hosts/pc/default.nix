@@ -40,6 +40,7 @@ in
 {
   imports = [
     ./hardware-configuration.nix # the nixos-generate-config scan
+    ../../modules/nixos/desktop.nix # Hyprland, the bar's system side, hyprlock's PAM entry
     inputs.nvidia-pstated.nixosModules.default
     inputs.home-manager.nixosModules.home-manager
   ];
@@ -195,11 +196,6 @@ in
     };
   };
 
-  # DDC/CI: the monitors' own brightness/contrast over the display cable,
-  # for the waybar display card (bar-popup display).  Loads i2c-dev and gives
-  # the seat user access to /dev/i2c-*.
-  hardware.i2c.enable = true;
-
   systemd.services.iphone-hid = {
     description = "PC keyboard and mouse as a Bluetooth HID device for the iPhone";
     wantedBy = [ "multi-user.target" ];
@@ -334,12 +330,6 @@ in
   services.xserver = {
     enable = true;
     videoDrivers = [ "nvidia" ];
-  };
-
-  programs.hyprland = {
-    enable = true;
-    xwayland.enable = true;
-    withUWSM = true;
   };
 
   services.displayManager.sddm.enable = true;

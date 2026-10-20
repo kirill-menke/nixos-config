@@ -1,0 +1,27 @@
+# Papirus-Dark with the tray icons of Discord, Steam and qBittorrent in the
+# bar's text colour, Catppuccin Mocha @text (#cdd6f4), where Papirus draws
+# them in its grey (#dfdfdf). The GTK icon theme (hosts/laptop/home-shared.nix,
+# gtk.iconTheme) is this one, and waybar's tray looks the apps' icon names
+# up in it. Everything else comes from Papirus-Dark, so the apps' own icons
+# (launchers, menus, windows) stay as they were: only tray-only names live
+# here.
+#  - steam_tray_mono: Steam's tray icon name.
+#  - qbittorrent-tray: qBittorrent's tray icon in its default style;
+#    qbittorrent-tray-dark, its monochrome style for dark panels, is the
+#    same icon (a symlink).
+#  - discord-tray: Discord's tray icon is a picture, not a name, so waybar
+#    maps Discord to this name (config.jsonc, tray "icons").
+# A theme of its own rather than icons merged into Papirus-Dark: GTK takes
+# the first theme in the chain that has a name at any size, so these win
+# at the 16 px icon size and at 32 px (scale 2) alike, where merged ones
+# would lose to Papirus' own 16x16@2x art.
+[Icon Theme]
+Name=Papirus-Dark-Tray
+Comment=Papirus-Dark with tray icons in Catppuccin Mocha's text colour
+Inherits=Papirus-Dark
+Directories=16x16/panel
+
+[16x16/panel]
+Context=Status
+Size=16
+Type=Fixed

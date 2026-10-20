@@ -1,18 +1,31 @@
 {
   "positionX": "right",
   "positionY": "top",
-  "control-center-margin-top": 8,
+  "control-center-margin-top": 4,
+  "control-center-margin-right": 8,
+  "control-center-margin-bottom": 8,
+  "notification-visibility": {
+    "hyprshot": {
+      "state": "transient",
+      "app-name": "^Hyprshot$"
+    }
+  },
   "widgets": [
+    "inhibitors",
     "title", "dnd", "mpris",
-    "volume",
     "notifications"
   ],
   "widget-config": {
-    "dnd": {
-      "text": "󰖔  Do Not Disturb"
+    "inhibitors": {
+      "text": "󰂛 Apps holding popups:",
+      "button-text": "Release"
     },
-    "volume": {
-      "label": "󰕾"
+    "dnd": {
+      "text": "󰂠 Do Not Disturb"
+    },
+    "mpris": {
+      "blacklist": ["playerctld"],
+      "autohide": true
     }
   }
 }

@@ -1,0 +1,29 @@
+From bd222984bb61ce09f942cba94204d1d53b41e365 Mon Sep 17 00:00:00 2001
+From: Prakhar Chhalotre <chhalotreprakhar00@gmail.com>
+Date: Wed, 11 Feb 2026 01:07:49 +0530
+Subject: [PATCH] fix: remove unnecessary console log for battery status
+
+Upstream Alexays/Waybar PR #4844 (issues #4840, #4887), unchanged; it
+applies to 0.15.0 as is. 0.15.0's battery module puts() its status on
+every update (every "interval" plus every power-supply event), about
+10,000 lines a day in waybar.service's journal, which bury its real
+errors.
+
+Drop this once nixpkgs ships a waybar newer than 0.15.0.
+---
+ src/modules/battery.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/modules/battery.cpp b/src/modules/battery.cpp
+index c706eb3cd2..8bf4a431c4 100644
+--- a/src/modules/battery.cpp
++++ b/src/modules/battery.cpp
+@@ -686,7 +686,7 @@ auto waybar::modules::Battery::update() -> void {
+     status = getAdapterStatus(capacity);
+   }
+   auto status_pretty = status;
+-  puts(status.c_str());
++
+   // Transform to lowercase  and replace space with dash
+   std::ranges::transform(status.begin(), status.end(), status.begin(),
+                          [](char ch) { return ch == ' ' ? '-' : std::tolower(ch); });

@@ -1,0 +1,66 @@
+From 876eaaf70f9ec9d42992849e0cb44533637a7f8c Mon Sep 17 00:00:00 2001
+From: Francois Lachese <francois.lachese@gmail.com>
+Date: Wed, 20 May 2026 15:57:38 +0200
+Subject: [PATCH] fix(amodule): prevent crash when cursor timeout fires after
+ destruction
+
+Upstream Alexays/Waybar PR #5058 (issue #5055). The code is unchanged;
+the hunks are rebased onto the 0.15.0 tag (the last one sits 4 lines
+higher there). When a module's window does not exist yet, setCursor()
+retries from a 1 s timer that captures `this`. If the bar is destroyed
+before the timer fires, as when a monitor is re-created on resume, the
+timer runs on a freed module: waybar segfaulted about 2 s after lid-open
+resumes. The module now keeps the timer's connection and cuts it in its
+destructor.
+
+Drop this once nixpkgs ships a waybar newer than 0.15.0.
+---
+ include/AModule.hpp | 1 +
+ src/AModule.cpp     | 8 ++++++--
+ 2 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/include/AModule.hpp b/include/AModule.hpp
+index 6b29045..4254b90 100644
+--- a/include/AModule.hpp
++++ b/include/AModule.hpp
+@@ -57,6 +57,7 @@ class AModule : public IModule {
+   bool hasUserEvents_;
+   gdouble distance_scrolled_y_;
+   gdouble distance_scrolled_x_;
++  sigc::connection cursor_timeout_conn_;
+   std::map<std::string, std::string> eventActionMap_;
+   static const inline std::map<std::pair<uint, GdkEventType>, std::string> eventMap_{
+       {std::make_pair(1, GdkEventType::GDK_BUTTON_PRESS), "on-click"},
+diff --git a/src/AModule.cpp b/src/AModule.cpp
+index c6fdff3..b3eac21 100644
+--- a/src/AModule.cpp
++++ b/src/AModule.cpp
+@@ -17,7 +17,8 @@ AModule::AModule(const Json::Value& config, const std::string& name, const std::
+       isTooltip{config_["tooltip"].isBool() ? config_["tooltip"].asBool() : true},
+       isExpand{config_["expand"].isBool() ? config_["expand"].asBool() : false},
+       distance_scrolled_y_(0.0),
+-      distance_scrolled_x_(0.0) {
++      distance_scrolled_x_(0.0),
++      cursor_timeout_conn_() {
+   // Configure module action Map
+   const Json::Value actions{config_["actions"]};
+ 
+@@ -83,6 +84,9 @@ AModule::AModule(const Json::Value& config, const std::string& name, const std::
+ }
+ 
+ AModule::~AModule() {
++  if (cursor_timeout_conn_.connected()) {
++    cursor_timeout_conn_.disconnect();
++  }
+   for (const auto& pid : pid_children_) {
+     if (pid != -1) {
+       killpg(pid, SIGTERM);
+@@ -114,7 +118,7 @@ void AModule::setCursor(Gdk::CursorType const& c) {
+   } else {
+     // window may not be accessible yet, in this case,
+     // schedule another call for setting the cursor in 1 sec
+-    Glib::signal_timeout().connect_seconds(
++    cursor_timeout_conn_ = Glib::signal_timeout().connect_seconds(
+         [this, c]() {
+           setCursor(c);
+           return false;

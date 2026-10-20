@@ -3,7 +3,9 @@ set -euo pipefail
 
 HYPR_DIR="${HOME}/.config/hypr"
 SPLASHES="${HYPR_DIR}/splashes.txt"
-SOURCE="${HOME}/Pictures/backgrounds/background.jpg"
+# The picture under the text: the first argument (each host's service gives
+# its own), else background.jpg.
+SOURCE="${1:-${HOME}/Pictures/backgrounds/background.jpg}"
 CACHE_DIR="${HOME}/.cache/hypr"
 OUTPUT="${CACHE_DIR}/daily-wallpaper.jpg"
 

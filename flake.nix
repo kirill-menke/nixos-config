@@ -4,12 +4,26 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     affinity-nix.url = "github:mrshmllow/affinity-nix";
-    spicetify-nix.url = "github:Gerg-L/spicetify-nix";
+    spicetify-nix = {
+      url = "github:Gerg-L/spicetify-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
 
     # Claude Code and Orca IDE. Both are bot-updated daily and served from
     # cache.numtide.com (substituter configured in hosts/pc/default.nix); Orca
     # is not in nixpkgs and ships no flake of its own.
     llm-agents.url = "github:numtide/llm-agents.nix";
+
+    # The laptop's Claude Code (overlay, pkgs.claude-code) and Firefox
+    # add-ons (hosts/laptop/home-shared.nix).
+    claude-code = {
+      url = "github:sadjow/claude-code-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    firefox-addons = {
+      url = "gitlab:rycee/nur-expressions?dir=pkgs/firefox-addons";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
 
     nvidia-pstated = {
       url = "github:sasha0552/nvidia-pstated";
@@ -93,6 +107,7 @@
     {
       nixosConfigurations = {
         pc = mkHost ./hosts/pc;
+        laptop = mkHost ./hosts/laptop;
         nas = mkHost ./hosts/nas;
       };
 

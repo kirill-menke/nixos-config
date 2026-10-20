@@ -1,7 +1,16 @@
 @import "mocha.css";
 
+/* One face for text and icons. The Propo variant of FantasqueSansM gives
+   every Nerd Font icon its drawn width as advance (the plain one draws
+   them up to 1.8 cells wide on a 1-cell advance, into the space after
+   them); its letters and digits are the plain ones. So an icon sits one
+   space (9-11px) from its text, and a lone icon centres in equal padding.
+   Tooltips take it too; tray menus too, at their own size (below).
+   Lengths are in px: rem follows the GTK font setting (10 pt here, 1rem =
+   13.33px), so the bar would change size with it, and differ on a machine
+   set to another size. */
 * {
-  font-family: "FantasqueSansM Nerd Font", "Symbols Nerd Font";
+  font-family: "FantasqueSansM Nerd Font Propo";
   font-size: 17px;
   min-height: 0;
 }
@@ -9,186 +18,726 @@
 #waybar {
   background: transparent;
   color: @text;
-  margin: 5px 5px;
 }
 
+/* Tooltips look like the popup cards (bar-popup's card CSS): the pills'
+   surface, a raised border, round corners, and the cards' 14px text
+   instead of the bar's 17px. The theme's padding stays. */
+tooltip {
+  background-color: @surface;
+  border: 1px solid @raised;
+  border-radius: 12px;
+}
+
+tooltip label {
+  color: @text;
+  font-size: 14px;
+}
+
+/* The bar's two ends sit on Hyprland's gaps_out (10px, hyprland.lua), the
+   line the windows' frames start on below; the last pill on the right
+   ends there too (#session). The gap after the workspaces is the next
+   pill's own margin, 13px like every other gap. */
 #workspaces {
-  background: @surface0;
-  border-radius: 1rem;
-  margin: 5px;
+  background: @surface;
+  border-radius: 13px;
+  margin: 5px 0 5px 10px;
   padding: 0 10px;
 }
 
+/* A workspace shows its windows' app glyphs (config.jsonc window-rewrite),
+   about 4px apart, an empty slot a ring in surface2, quieter than the
+   glyphs; 12px between workspaces keeps each one's glyphs together. A
+   change of state only recolours them, so it never moves the bar.
+   Clickable, so they highlight on hover like the modules; no theme tint
+   on top of it. */
 #workspaces button {
   background: transparent;
   border: none;
-  padding: 0 4px;
-  color: @overlay0;
+  border-radius: 13px;
+  box-shadow: none;
+  padding: 0 6px;
+  color: @dim;
+  transition: background-color 200ms ease-in-out;
 }
+#workspaces button:hover   { background-color: @raised; }
+#workspaces button.empty   { color: @surface2; }
 #workspaces button.visible { color: @text; }
-#workspaces button.active  { color: @mauve; }
-#workspaces button.urgent  { color: @red; }
+#workspaces button.active  { color: @accent; }
+#workspaces button.urgent  { color: @crit; }
+/* surface2 would all but vanish on the hover's raised surface */
+#workspaces button.empty:hover:not(.active) { color: @dim; }
 
-#tray,
-#clock,
-#custom-pomodoro,
-#custom-power,
-#pulseaudio,
-#custom-display,
-#custom-network,
-#custom-weather,
-#bluetooth,
-#language {
-  background-color: @surface0;
-  padding: 0.5rem 1rem;
-  margin: 5px 0;
+/* The scratchpad (show-special): its glyphs in a dashed outline. The
+   button already spans the pill's height, so the border never moves the
+   bar. */
+#workspaces button.special { border: 1px dashed @overlay0; }
+
+/* Docked (all-outputs): a workspace on the other screen at half opacity,
+   so each bar tells its own screen's workspaces from the rest. Undocked
+   every workspace is on the bar's own screen, so nothing dims. (Each bar
+   still runs its own copy of every module's script.) */
+#workspaces button:not(.hosting-monitor) { opacity: 0.5; }
+
+/* The two right-hand pills (config.jsonc): each group's box draws the
+   surface and the rounded ends, so a member that hides (the connectivity
+   glyph while all is well, Bluetooth or the battery on a PC without them)
+   or moves never leaves a square end. Each pill keeps its gap on its left,
+   like the pills on the left. */
+#devices,
+#session {
+  background-color: @surface;
+  border-radius: 13px;
+  margin: 5px 0 5px 13px;
 }
 
-/* Clickable modules: a soft highlight fades in on hover. The ones that
-   open a popup card (bar-popup, pomodoro-popup) also get a hand cursor
-   in config.jsonc; language switches the keyboard layout. */
-#custom-network,
+#session {
+  margin-right: 10px; /* on gaps_out, as #workspaces */
+}
+
+/* Their members only pad: 11px beside the text, 2px less than in the
+   left-hand pills, from when they had to fit beside a centred pill.
+   Clickable, so each highlights on hover, and waybar shows a hand cursor
+   on every module with a click action; the highlight is a pill of its
+   own, as in the hardware pill: a square one would stick out past the
+   pill's rounded ends. Most open a popup card (bar-popup), the bell
+   swaync's panel; language switches the keyboard layout. */
+#network.status,
+#custom-connectivity,
+#battery,
 #bluetooth,
 #language,
 #pulseaudio,
 #custom-display,
-#custom-pomodoro {
+#custom-weather,
+#clock,
+#custom-notifications,
+#custom-pomodoro,
+#custom-power {
+  background-color: transparent;
+  border-radius: 13px;
+  padding: 6px 11px;
   transition: background-color 200ms ease-in-out;
 }
 
-#custom-network:hover,
+#network.status:hover,
+#custom-connectivity:hover,
+#battery:hover,
 #bluetooth:hover,
 #language:hover,
 #pulseaudio:hover,
 #custom-display:hover,
-#custom-pomodoro:hover {
-  background-color: @surface1;
+#custom-weather:hover,
+#clock:hover,
+#custom-notifications:hover,
+#custom-pomodoro:hover,
+#custom-power:hover {
+  background-color: @raised;
 }
 
-/* Center hardware pill: the group box owns the background and corners,
-   so a hidden member (e.g. GPU) never leaves a square edge */
+/* Lone icons: equal padding on both sides centres them. 7px, not the text
+   modules' 11px, also from the days of the centred pill. The pomodoro
+   keeps it while it counts down, so a start only adds the countdown; the
+   display module keeps it with its level, which gets more room around it
+   below 100%. */
+#bluetooth,
+#custom-display,
+#custom-notifications,
+#custom-pomodoro,
+#custom-power {
+  padding-left: 7px;
+  padding-right: 7px;
+}
+
+/* Each module's state rules below follow one scheme (mocha.css): off,
+   idle, muted or disconnected @dim; worth a look @warn; act now @crit;
+   on the charger or a break @ok. No module rests in one of those colours
+   (CPU and temperature rest in mauve, the System card's colour), so a
+   warning never looks like a module's own colour. */
+
+/* Hovered, a dimmed module lifts a step, to subtext0, as the cards'
+   secondary lines do on a hovered row: on the hover's @raised, @dim has
+   3.2:1 and subtext0 4.1:1, still a step under every module's own colour.
+   One list for every @dim state in this file, so a new one joins it, and
+   only while the state is dim: a hidden workspace's glyphs (an empty
+   slot's ring lifts to @dim, at the workspaces), the idle rates with the
+   hardware pill, which lights as one, a stale reading unless a warning
+   colours it, the bell unless something new makes it @warn or a hold
+   mauve. The tray's idle icons lift by opacity, at the tray. */
+#workspaces button:hover:not(.empty):not(.visible):not(.active):not(.urgent),
+#hw:hover #custom-net-speed.idle,
+#hw:hover #custom-net-speed.disconnected,
+#mpris.paused:hover,
+#network.status.linked:hover,
+#network.status.disconnected:hover,
+#network.status.disabled:hover,
+#bluetooth.off:hover,
+#bluetooth.disabled:hover,
+#pulseaudio.muted:hover,
+#custom-display.paused:hover,
+#custom-weather.stale:hover:not(.alert-minor):not(.alert-moderate):not(.alert-severe):not(.alert-extreme),
+#custom-notifications:hover:not(.new):not(.inhibited-notification):not(.inhibited-none),
+#custom-notifications.dnd-notification.new:hover,
+#custom-notifications.dnd-inhibited-notification.new:hover,
+#custom-pomodoro.idle:hover {
+  color: @subtext0;
+}
+
+/* Hardware pill, left of the media pill: the group box owns the background
+   and corners, so a hidden member (e.g. GPU) never leaves a square edge.
+   Every member opens the System card (left click) and btop (right click;
+   the GPU nvtop), so the whole pill lights up as one button. Waybar's
+   group marks its box hovered from the moment the pointer enters until it
+   leaves the group, moving between members included
+   (Group::handleMouseEnter/Leave). */
 #hw {
-  background-color: @surface0;
-  border-radius: 1rem;
-  margin: 5px 0;
+  background-color: @surface;
+  border-radius: 13px;
+  margin: 5px 0 5px 13px;
+  transition: background-color 200ms ease-in-out;
+}
+
+#hw:hover {
+  background-color: @raised;
 }
 
 #custom-net-speed,
-#memory,
+#custom-memory,
 #cpu,
-#temperature,
+#custom-temperature,
 #custom-gpu {
   background: transparent;
-  padding: 0.5rem 1rem;
+  padding: 6px 13px;
 }
 
-
+/* Weather: 61px is "☁ 12°C", the commonest width; narrower readings sit
+   in the middle, so a new condition or a 9-to-10 °C change never moves
+   the modules beside it. Only -10 °C and below still grows. */
 #custom-weather {
+  min-width: 61px;
   color: @sky;
-  border-radius: 1rem 0 0 1rem;
-  margin: 5px 0;
-  margin-left: 1rem;
+}
+
+/* Weather (weather.py): dimmed once the reading is over half an hour old,
+   i.e. offline; in the DWD's colour for the worst warning that holds. That
+   wins over dimmed: a warning still holds while offline. From orange on,
+   the warning glyph replaces the condition's, so a warning isn't told by
+   colour alone; red and violet, the levels that call for action, are bold
+   as well, like a critical temperature. */
+#custom-weather.stale {
+  color: @dim;
+}
+
+#custom-weather.alert-minor {
+  color: @yellow;
+}
+
+#custom-weather.alert-moderate {
+  color: @warn;
+}
+
+#custom-weather.alert-severe {
+  color: @crit;
+}
+
+#custom-weather.alert-extreme {
+  color: @mauve;
+}
+
+#custom-weather.alert-severe,
+#custom-weather.alert-extreme {
+  font-weight: bold;
 }
 
 #clock {
   color: @blue;
-  border-radius: 0;
+}
+
+/* Notification bell (notif-bar), one class per swaync state,
+   [dnd-][inhibited-]notification|none, plus "new" while something arrived
+   since the panel was last open. That is worth a look: the number of new
+   ones after the bell, small, raised and @warn in every state (notif-bar's
+   markup badge; "9+" past nine), and the bell itself @warn too unless Do
+   Not Disturb or a hold is on. Everything already seen is no news: @dim,
+   like an empty panel and Do Not Disturb. Mauve while an app holds popups
+   back (a screen share, a pomodoro focus phase, a fullscreen window). At
+   17px the crossed bells are 15px wide and the others 13px, and a badge's
+   digit adds 5px: min-width holds the widest, a crossed bell with its
+   badge, so neither a hold nor what arrives moves the bar; only "9+" adds
+   2px (4px with a hold). The bell sits in the middle while nothing is new. */
+#custom-notifications {
+  min-width: 20px;
+  color: @dim;
+}
+
+#custom-notifications.new {
+  color: @warn;
+}
+
+#custom-notifications.dnd-notification.new,
+#custom-notifications.dnd-inhibited-notification.new {
+  color: @dim;
+}
+
+#custom-notifications.inhibited-notification,
+#custom-notifications.inhibited-none {
+  color: @mauve;
 }
 
 /* No min-width: the module hugs its content, so it's a slim icon when idle
-   and widens to fit the MM:SS countdown once a timer is running.
-   Trim the left padding so the icon/timer is visually centred between the
-   clock (1rem right padding) and the power button (0.7rem left padding). */
+   and widens to fit the minutes left (three characters, "59m" to " 1s")
+   while a timer runs or is paused. */
 #custom-pomodoro {
   color: @mauve;
-  border-radius: 0;
-  padding-left: 0.7rem;
-  padding-right: 1rem;
 }
 
 #custom-pomodoro.break {
-  color: @green;
+  color: @ok;
 }
 
 #custom-pomodoro.idle {
-  color: @overlay1;
+  color: @dim;
+}
+
+#custom-pomodoro.paused {
+  color: @yellow;
 }
 
 #custom-power {
   color: @red;
-  border-radius: 0 1rem 1rem 0;
-  margin-right: 1rem;
-  padding-left: 0.7rem;
-  padding-right: 1.2rem;
 }
 
-#memory {
+/* Used memory (memory.sh): @warn once it runs short, from 80 % used or
+   with programs waiting for it 10 % of the time; @crit once they stall
+   (all of them 7 %) or from 92 % used with the zram 80 % full */
+#custom-memory {
   color: @green;
 }
 
+#custom-memory.warning {
+  color: @warn;
+}
+
+#custom-memory.critical {
+  color: @crit;
+}
+
+/* The charging glyphs, which fill with the charge (config.jsonc), are 6px
+   wider than the others: min-width holds a charging glyph and "99%", so
+   plugging in or out never moves the bar; 100% still adds a digit, as
+   before. */
+#battery {
+  min-width: 51px;
+  color: @yellow;
+}
+
+/* Discharging: @warn at 30 % and below, @crit at 15 % and below, and
+   from 5 % ("last") too (the config's states; waybar sets only the lowest
+   state that applies). On the charger: @ok. Waybar sets the status
+   (charging, discharging, plugged, full) and the state as classes. */
+#battery.discharging.warning {
+  color: @warn;
+}
+
+#battery.discharging.critical,
+#battery.discharging.last {
+  color: @crit;
+}
+
+/* Entering the 15 % state on battery, the pill flashes red three times,
+   a second each, then holds still: enough to catch the eye as the
+   critical notice arrives, without a blink that would keep GTK redrawing
+   the bar every frame while the battery is short. GTK keeps a finished
+   animation with the style while the class stays (gtkcssanimation.c: a
+   CSS animation is never "finished"), so a hover doesn't replay it; it
+   plays again only when the class comes back (unplugged again under
+   15 %) or the bar is rebuilt (a monitor plugged in, a resume). The
+   member's own background is transparent (the #devices box draws the
+   surface): the tint fades to the same red at alpha 0, so no step of the
+   fade is darker. On the charger (.charging.critical) it stays green and
+   still; at 5 % waybar swaps the class for "last", which doesn't pulse. */
+@keyframes battery-critical {
+  from { background-color: alpha(@crit, 0.4); }
+  to { background-color: alpha(@crit, 0); }
+}
+
+#battery.discharging.critical {
+  animation: battery-critical 1s ease-out 3;
+}
+
+#battery.charging,
+#battery.plugged,
+#battery.full {
+  color: @ok;
+}
+
+/* CPU usage (config.jsonc states): @warn from 70 %, @crit from 90 % */
 #cpu {
-  color: @peach;
-  padding-right: 0.3rem;
+  color: @mauve;
+  padding-right: 4px;
 }
 
-#temperature {
-  color: @peach;
-  padding-left: 0.3rem;
+#cpu.warning {
+  color: @warn;
 }
 
-#temperature.critical {
-  color: @red;
+#cpu.critical {
+  color: @crit;
+}
+
+#custom-temperature {
+  color: @mauve;
+  padding-left: 4px;
+}
+
+/* CPU package temperature (cpu-temp.sh): @warn from 20 °C under the
+   CPU's limit, @crit from 10 °C under it (85 and 95 °C here), as the
+   System card colours it. Critical is also bold: the one state that
+   matters stands out from a busy CPU's red beside it without relying on
+   hue alone. FantasqueSansM's bold is as wide as its regular, so the bar
+   doesn't move. */
+#custom-temperature.warning {
+  color: @warn;
+}
+
+#custom-temperature.critical {
+  color: @crit;
+  font-weight: bold;
 }
 
 #custom-gpu {
   color: @teal;
 }
 
+/* Hot (gpu.sh, a dedicated GPU): the hot glyph in @warn from 80 °C, in
+   @crit from 90 °C, as the System card colours it */
+#custom-gpu.warning {
+  color: @warn;
+}
+
+#custom-gpu.critical {
+  color: @crit;
+}
+
+/* net-speed.sh keeps its text one width, four characters a rate, so the
+   pill stays put whatever the rates are: no min-width */
 #custom-net-speed {
   color: @sapphire;
-  min-width: 80px;
 }
 
-#custom-network {
+/* Both rates under 10 KiB/s, or no default route (net-speed.sh) */
+#custom-net-speed.idle,
+#custom-net-speed.disconnected {
+  color: @dim;
+}
+
+/* Traffic on a link NetworkManager calls metered, a phone's hotspot say
+   (net-speed.sh): worth a look. Idle still dims it (the class is idle then). */
+#custom-net-speed.metered {
+  color: @warn;
+}
+
+/* waybar names the label #network and adds the instance name as a class
+   (network#status -> .status). */
+#network.status {
   color: @lavender;
-  border-radius: 1rem 0px 0px 1rem;
-  margin: 5px 0;
-  margin-left: 1rem;
 }
 
+/* Not online: no address (linked), no network, or Wi-Fi off */
+#network.status.linked,
+#network.status.disconnected,
+#network.status.disabled {
+  color: @dim;
+}
+
+/* What lies past the link (connectivity.py), right after the network
+   module and there only while there is something to say: a VPN's lock in
+   the network's lavender; behind a captive portal "Sign in" in yellow, as
+   the Network card's banner; the internet out of reach, a glyph in @warn.
+   The most urgent class sets the colour, so a lock beside "Sign in" or
+   the glyph takes theirs. Its box reaches back over the network module's
+   right padding, so the text follows the network's one space after it,
+   while its hover pill still has room on both sides. */
+#custom-connectivity {
+  margin-left: -11px;
+  color: @lavender;
+}
+
+#custom-connectivity.portal {
+  color: @yellow;
+}
+
+#custom-connectivity.limited {
+  color: @warn;
+}
+
+/* Mostly a lone glyph; a connected device's battery joins it */
 #bluetooth {
   color: @sapphire;
-  border-radius: 0;
-  margin: 5px 0;
+}
+
+/* Powered down (the usual state) or blocked by rfkill */
+#bluetooth.off,
+#bluetooth.disabled {
+  color: @dim;
 }
 
 #language {
   color: @sky;
-  border-radius: 0;
-  margin: 5px 0;
 }
 
 #pulseaudio {
   color: @maroon;
-  border-radius: 0;
-  margin: 5px 0;
 }
 
-/* Evening mode: a sun by day, a moon in warm peach while the tint is on */
+/* Output muted. A muted microphone adds its own red glyph after the level
+   (config.jsonc format-source-muted), in either state. */
+#pulseaudio.muted {
+  color: @dim;
+}
+
+/* Evening mode: a sun by day, a moon in lavender, the Weather card's
+   night colour, while the tint is on, the moon @dim while it is paused
+   for a film (`nightlight pause`), so a paused tint reads as neither on
+   nor off, and a coffee cup in any of those colours while keep awake
+   lasts (nightlight.py).
+   The glyphs differ in width (at 17px the sun 16px, moon and cup 14px):
+   min-width holds the widest, so a swap never moves the bar. With the
+   level of the bar's own screen after the glyph (class level: the
+   built-in panel's, or a monitor's over DDC/CI; none on a screen without
+   either), it holds the widest of those, "100%" after the sun, so a new
+   level never moves the bar either; shorter ones sit in the middle. */
 #custom-display {
+  min-width: 16px;
   color: @yellow;
-  border-radius: 0px 1rem 1rem 0px;
-  margin: 5px 0;
+}
+
+#custom-display.level {
+  min-width: 61px;
 }
 
 #custom-display.on {
-  color: @peach;
+  color: @lavender;
 }
 
+#custom-display.paused {
+  color: @dim;
+}
+
+/* The tray: one pill. Each item's icon carries 13px on either side, so
+   its hover highlight is a pill of its own, as in the hardware pill:
+   clickable (a menu), it highlights like the other modules. */
 #tray {
-  margin-left: 1rem;
-  margin-right: 1rem;
-  border-radius: 1rem;
-  padding: 0.5rem 1rem;
-  background-color: @surface0;
+  background-color: @surface;
+  border-radius: 13px;
+  margin: 5px 0 5px 13px;
+  padding: 0;
+}
+
+#tray > widget > image {
+  padding: 0 13px;
+  border-radius: 13px;
+  transition: background-color 200ms ease-in-out;
+}
+
+#tray > widget:hover > image {
+  background-color: @raised;
+}
+
+/* Tray items: an idle one (e.g. udiskie with nothing to mount) at 60 %
+   opacity, which turns a light icon as bright as @dim, the bar's idle
+   modules (4.5:1). Waybar sets the icons as surfaces, so GTK's
+   -gtk-icon-effect wouldn't touch them. Hovered, it lifts a step like the
+   dimmed modules: the opacity covers its hover chip too, and at 70 % a
+   light icon (udiskie's #e0e0e0) has 4.4:1 on it, at 60 % 3.7:1. */
+#tray > .passive {
+  opacity: 0.6;
+}
+
+#tray > .passive:hover {
+  opacity: 0.7;
+}
+
+/* Wants attention: a red-tinted pill of its own, the icon still readable
+   on it. A symbolic icon (none so far) would also turn red: waybar
+   recolours those with the item's colour. */
+#tray > .needs-attention {
+  color: @crit;
+}
+
+#tray > .needs-attention > image {
+  background-color: mix(@surface, @crit, 0.3);
+}
+
+/* Tray menus (dbusmenu, e.g. udiskie's) in the cards' look: their surface,
+   a raised border, 14px text, rows that highlight like the cards' rows.
+   Waybar attaches each menu to its tray item, so "#tray menu" reaches only
+   these. The * rule's min-height: 0 also flattened the theme's 1px
+   separators and its submenu arrows; they get their size back here. */
+#tray menu {
+  background-color: @surface;
+  border: 1px solid @raised;
+  border-radius: 12px;
+  box-shadow: none;
+  padding: 6px;
+}
+
+#tray window.popup decoration {
+  border-radius: 12px;
+  box-shadow: 0 3px 8px alpha(@crust, 0.5);
+}
+
+#tray menu menuitem {
+  color: @text;
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+
+#tray menu menuitem label {
+  font-size: 14px;
+}
+
+#tray menu menuitem:hover {
+  background-color: @raised;
+}
+
+#tray menu menuitem:disabled,
+#tray menu menuitem:disabled label {
+  color: @subtext0;
+}
+
+#tray menu separator {
+  min-height: 1px;
+  margin: 4px 10px;
+  background-color: @raised;
+}
+
+#tray menu menuitem arrow {
+  min-width: 16px;
+  min-height: 16px;
+  color: @overlay2;
+}
+
+/* Check items as the cards' switches: off an overlay1 ring, on mauve with
+   the mark in base. Without a size here they didn't show at all. */
+#tray menu menuitem check {
+  min-width: 14px;
+  min-height: 14px;
+  border: 1px solid @overlay1;
+  border-radius: 4px;
+  background-color: transparent;
+}
+
+#tray menu menuitem check:checked {
+  border-color: @accent;
+  background-color: @accent;
+  color: @base;
+}
+
+/* Now playing (mpris), a pill of its own after the hardware pill. Left of
+   centre each pill keeps its gap on its left, like the pills on the
+   right, so any of tray, mpris, attention, privacy and camera can hide
+   without leaving a double or a missing gap. A player that is already
+   stopped when the bar starts leaves waybar's label empty but visible, so
+   only the playing and paused classes draw the pill. The pill is a fixed
+   31px, the other pills' height, rather than 6px above and below the
+   text: a title in a fallback font (an emoji in Noto Color Emoji, Japanese
+   in Noto Sans CJK) has taller lines and grew the bar by 2-6px, moving
+   every window, for as long as it played. */
+#mpris.playing,
+#mpris.paused {
+  background-color: @surface;
+  border-radius: 13px;
+  padding: 0 13px;
+  min-height: 31px;
+  margin: 5px 0;
+  margin-left: 13px;
+  color: @pink;
+  transition: background-color 200ms ease-in-out;
+}
+
+#mpris.paused {
+  color: @dim;
+}
+
+#mpris.playing:hover,
+#mpris.paused:hover {
+  background-color: @raised;
+}
+
+/* Needs attention (attention.py): failed or restarting units, a full disk
+   or a failing drive in @crit with their count; an app hogging the CPU on
+   battery (by name), else a pending reboot, else a firmware update, in
+   @warn. */
+#custom-attention {
+  background-color: @surface;
+  border-radius: 13px;
+  padding: 6px 13px;
+  margin: 5px 0;
+  margin-left: 13px;
+  color: @crit;
+  transition: background-color 200ms ease-in-out;
+}
+
+#custom-attention:hover {
+  background-color: @raised;
+}
+
+/* Worth a look, not broken: a pending reboot, an app hogging the CPU on
+   battery, a firmware update (md-chip alone when it is the only one) */
+#custom-attention.reboot,
+#custom-attention.hog,
+#custom-attention.firmware {
+  color: @warn;
+}
+
+/* Anything red listed as well: the count beats the rest */
+#custom-attention.failed,
+#custom-attention.restarting,
+#custom-attention.disk,
+#custom-attention.drive {
+  color: @crit;
+}
+
+/* Recording: the privacy module while an app records the microphone or
+   captures the screen, the camera (camera.py) while an app holds the
+   webcam. Pills of their own after attention, filled: the bar's only
+   solid peach pills, readable at a glance and in the corner of the eye
+   (orange, as macOS and iOS mark the microphone). Their glyphs in crust,
+   as the cards put text on an accent fill. Only the privacy pill is
+   clickable (pavucontrol's Recording tab, the microphone off), so only it
+   lightens on hover. */
+#privacy,
+#custom-camera {
+  background-color: @warn;
+  border-radius: 13px;
+  padding: 6px 13px;
+  margin: 5px 0;
+  margin-left: 13px;
+}
+
+#privacy {
+  transition: background-color 200ms ease-in-out;
+}
+
+#privacy:hover {
+  background-color: mix(@warn, @text, 0.35);
+}
+
+#privacy-item,
+#custom-camera {
+  color: @crust;
+}
+
+/* While a Hyprland submap is on (SUPER+B: the bar's cards by letter), its
+   name, the legend of its letters: a pill of its own, last on the left
+   like the recording pills, so it moves nothing when it shows. Mauve, as
+   the active workspace: it says where the keys go now. */
+#submap {
+  background-color: @surface;
+  border-radius: 13px;
+  padding: 6px 13px;
+  margin: 5px 0;
+  margin-left: 13px;
+  color: @accent;
 }
