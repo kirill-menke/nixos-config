@@ -15,6 +15,8 @@ keyboard asks for.
 """
 
 import collections
+import os
+import struct
 
 import gi
 
@@ -87,6 +89,10 @@ SHOWN = {
 # BlueZ answers a power-up only once the controller is up and reports
 # Powered right after; devices waiting for it give up after this long.
 POWER_UP_WAIT = 3  # s
+# `rfkill unblock bluetooth` as the struct rfkill_event it writes to
+# /dev/rfkill (linux/rfkill.h): every radio (idx 0, op CHANGE_ALL = 3) of
+# type BLUETOOTH (2), soft block off. logind gives the seat user the device.
+RFKILL_UNBLOCK = struct.pack("=IBBBB", 0, 2, 3, 0, 0)
 NEARBY_MAX = 6  # new devices listed, as the Network card's WIFI_MAX
 # Pairing waits for a person: a code to compare, or one to type on a
 # keyboard. BlueZ gives up on its side first (its agent timeout is 60 s).
@@ -825,6 +831,13 @@ class BluetoothPanel(Panel):
             self._give_up_waiting(None)
             if self.searching:
                 self._stop_search()
+        elif prop(adapter, "PowerState") == "off-blocked":
+            # Turned off through rfkill (blueman's switch, a radio key):
+            # BlueZ refuses Powered while the block holds and powers the
+            # adapter up by itself as soon as it is gone.
+            self._unblock()
+            self.refresh()
+            return
         args = GLib.Variant("(ssv)", ("org.bluez.Adapter1", "Powered",
                                       GLib.Variant("b", self.power_target)))
         adapter.call("org.freedesktop.DBus.Properties.Set", args,
@@ -837,23 +850,42 @@ class BluetoothPanel(Panel):
             adapter.call_finish(result)
             self.power_error = None
         except GLib.Error as err:
-            self.power_target = None  # show the real state again
-            # Said where it was asked for: on the rows waiting for the
-            # adapter, in the search list, else under the title.
-            if self.waiting or self.searching:
-                self._give_up_waiting(short_error(err))
-                if self.searching:
-                    self.search_error = short_error(err)
-            else:
-                self.power_error = short_error(err)
+            self._power_failed(short_error(err))
         else:
-            # Normally refresh() clears the target once BlueZ reports the
-            # new state; this catches the case where it never does.
-            if self.power_timer is not None:
-                GLib.source_remove(self.power_timer)
-            self.power_timer = GLib.timeout_add_seconds(POWER_UP_WAIT,
-                                                        self._power_overdue)
+            self._await_power()
         self.refresh()
+
+    def _unblock(self):
+        try:
+            fd = os.open("/dev/rfkill", os.O_WRONLY)
+            try:
+                os.write(fd, RFKILL_UNBLOCK)
+            finally:
+                os.close(fd)
+        except OSError:
+            self._power_failed("Bluetooth is blocked (rfkill)")
+            return
+        self.power_error = None
+        self._await_power()
+
+    def _power_failed(self, text):
+        self.power_target = None  # show the real state again
+        # Said where it was asked for: on the rows waiting for the
+        # adapter, in the search list, else under the title.
+        if self.waiting or self.searching:
+            self._give_up_waiting(text)
+            if self.searching:
+                self.search_error = text
+        else:
+            self.power_error = text
+
+    def _await_power(self):
+        # Normally refresh() clears the target once BlueZ reports the
+        # new state; this catches the case where it never does.
+        if self.power_timer is not None:
+            GLib.source_remove(self.power_timer)
+        self.power_timer = GLib.timeout_add_seconds(POWER_UP_WAIT,
+                                                    self._power_overdue)
 
     def _power_overdue(self):
         self.power_timer = None
