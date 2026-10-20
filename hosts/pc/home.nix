@@ -719,6 +719,9 @@ in
     # Claude Desktop (community repackage of the Electron app; unofficial on
     # Linux).  Prebuilt on cache.numtide.com like Orca.
     inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system}.claude-desktop
+    # oh-my-pi (`omp`): terminal coding agent with the IDE wired in.  Plain
+    # build, no Bedrock wrapper like the laptop's; prebuilt on cache.numtide.com.
+    inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system}.omp
     krita
     # 3D modelling/animation.  Upstream binaries rather than nixpkgs' blender:
     # the CUDA/OptiX kernels the 1080 Ti needs are only obtainable from source

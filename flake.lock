@@ -310,11 +310,11 @@
         "treefmt-nix": "treefmt-nix_2"
       },
       "locked": {
-        "lastModified": 1791730852,
-        "narHash": "sha256-0fF/bp5bcYRDQ59mTGm25Am0sYphX0I58z/awnoQPWE=",
+        "lastModified": 1791875083,
+        "narHash": "sha256-OUqcHupOeXPdIiPWrfQq5iXvTlMmYo1GLw/2gWdnjJc=",
         "ref": "main",
-        "rev": "88b9c4045221ffa38bf4afccfb0738bbeb13cbc5",
-        "revCount": 491,
+        "rev": "aaed45ea459dfe90170ff11eb9b82e34ca99be8f",
+        "revCount": 510,
         "type": "git",
         "url": "file:///home/kirill/Documents/projects/kirifin"
       },
