@@ -1,6 +1,8 @@
 #
 # Scan inbox: the Brother ADS-1800W drops every scan into one SMB share,
-# \\192.168.0.175\scans -> /tank/data/scans.
+# \\192.168.0.175\scans -> nas.scanRoot (/tank/data/scans), which is
+# Paperless's consumption directory (paperless.nix). Paperless OCRs and files
+# each PDF, then deletes it here: the share is an inbox, not an archive.
 #
 # Why SMB: the scanner's network-folder targets are CIFS and (S)FTP only; the
 # NFS export in media.nix is not an option for it. Only smbd runs: the scanner
@@ -8,8 +10,8 @@
 # membership (winbindd) stay off.
 #
 # Access: one Samba account, `scanner`, valid on this share only, LAN only.
-# The same credentials open smb://nas.local/scans from the desktop or the
-# iPhone Files app to collect scans.
+# smbd writes every file as the paperless user (force user below), so the
+# consumer, sandboxed with PrivateUsers=, owns what it has to read and delete.
 #
 # Its password is the sops secret nas/scanner-smb-password. Samba keeps its own
 # password database (/var/lib/samba/private/passdb.tdb), so
@@ -17,24 +19,23 @@
 # whenever the secret changes. To rotate: `sops secrets/nas.yaml`, deploy, then
 # update the password in the scanner's Scan to Network profile.
 #
-# Data safety: this lives on `tank`, a single disk until the mirror exists.
+# Data safety: files only sit here until Paperless has consumed them.
 #
 { config, ... }:
 let
-  scanRoot = "/tank/data/scans";
+  inherit (config.nas) scanRoot;
+  inherit (config.services.paperless) user group;
   passwordFile = config.sops.secrets."nas/scanner-smb-password".path;
 in
 {
-  # No shell, no home: exists only so Samba has a Unix owner for the files.
-  # Primary group `users` (kirill's too) plus the setgid dir below keep every
-  # scan editable by kirill over ssh.
+  # No shell, no home: exists only because Samba authenticates against a Unix
+  # account. Files never belong to it (force user below). The directory itself
+  # is created by the paperless module (consumptionDir).
   users.users.scanner = {
     isSystemUser = true;
     group = "users";
     description = "Brother ADS-1800W scan-to-SMB";
   };
-
-  systemd.tmpfiles.rules = [ "d ${scanRoot} 2775 scanner users -" ];
 
   services.samba = {
     enable = true;
@@ -59,12 +60,13 @@ in
 
       scans = {
         path = scanRoot;
-        comment = "Scanner inbox";
+        comment = "Scanner inbox (Paperless consumption dir)";
         "valid users" = "scanner";
         "read only" = "no";
-        "force group" = "users";
-        "create mask" = "0664";
-        "directory mask" = "2775";
+        "force user" = user;
+        "force group" = group;
+        "create mask" = "0640";
+        "directory mask" = "0750";
       };
     };
   };

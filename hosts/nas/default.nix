@@ -29,6 +29,7 @@
     ./reel-api.nix
     ./media.nix
     ./options.nix
+    ./paperless.nix
     ./reap-stalled.nix
     ./scans.nix
     ./secrets.nix

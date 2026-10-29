@@ -20,6 +20,15 @@
       '';
     };
 
+    scanRoot = lib.mkOption {
+      type = lib.types.str;
+      default = "/tank/data/scans";
+      description = ''
+        Scanner inbox: written over SMB by the Brother ADS-1800W (scans.nix),
+        consumed and emptied by Paperless (paperless.nix).
+      '';
+    };
+
     secretsDir = lib.mkOption {
       type = lib.types.str;
       default = "/var/lib/nixos-secrets";
