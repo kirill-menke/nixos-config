@@ -30,6 +30,7 @@
     ./media.nix
     ./options.nix
     ./reap-stalled.nix
+    ./scans.nix
     ./secrets.nix
     ./subtitles.nix
     ./tailscale.nix
