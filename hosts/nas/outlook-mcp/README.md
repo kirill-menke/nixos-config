@@ -153,6 +153,24 @@ curl -si https://outlook-mcp.tail1234.ts.net/mcp | head -1      # expect a 401
 
 In a chat, turn it on under **+ → Connectors**.
 
+### 7. Local MCP clients over SSH (optional)
+
+MCP clients on a machine that can SSH into the NAS (omp, Claude Code, Claude Desktop) can start the server directly as a stdio server. That skips the public gate and OAuth:
+
+```json
+{
+  "mcpServers": {
+    "outlook": {
+      "type": "stdio",
+      "command": "ssh",
+      "args": ["-T", "-o", "BatchMode=yes", "-o", "ServerAliveInterval=30", "nas", "sudo", "outlook-mcp-stdio"]
+    }
+  }
+}
+```
+
+`outlook-mcp-stdio` runs the server as `outlook-mcp` with the service's tools, `--read-only` and account pin, and shares its token cache. The server re-reads the cache from disk before every access, so concurrent processes stay consistent. It needs root on the NAS, so anyone who can use it could read the mailbox anyway. Each connected client starts its own Node process on the NAS (about 130–160 MiB) for as long as its session lasts.
+
 ## Operations
 
 | | |

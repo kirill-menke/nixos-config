@@ -96,6 +96,31 @@ let
   ]
   ++ serverCommand;
 
+  # The server as the service user with the service's environment, tools,
+  # read-only mode and account pin (outlook-mcp-login and outlook-mcp-stdio).
+  runServer = "runuser -u outlook-mcp -- env ${
+    lib.escapeShellArgs (lib.mapAttrsToList (n: v: "${n}=${v}") serverEnv)
+  } ${lib.escapeShellArgs serverCommand}";
+
+  # The same server on stdin/stdout, for MCP clients that reach this host over
+  # SSH instead of through the public gate: `ssh <host> sudo outlook-mcp-stdio`.
+  # It shares the token cache with the service, which upstream keeps coherent
+  # by re-reading it from disk before every access (buildDiskCoherencyCachePlugin).
+  stdioTool = pkgs.writeShellApplication {
+    name = "outlook-mcp-stdio";
+    runtimeInputs = [
+      pkgs.coreutils
+      pkgs.util-linux
+    ];
+    text = ''
+      if [ "$(id -u)" -ne 0 ]; then
+        echo "Run as root: sudo outlook-mcp-stdio" >&2
+        exit 1
+      fi
+      exec ${runServer}
+    '';
+  };
+
   loginTool = pkgs.writeShellApplication {
     name = "outlook-mcp-login";
     runtimeInputs = [
@@ -111,9 +136,7 @@ let
       fi
 
       run_server() {
-        runuser -u outlook-mcp -- env ${
-          lib.escapeShellArgs (lib.mapAttrsToList (n: v: "${n}=${v}") serverEnv)
-        } ${lib.escapeShellArgs serverCommand} "$@"
+        ${runServer} "$@"
       }
 
       # --verify-login always exits 0 (the JSON tells); --login exits 1 on hard
@@ -323,7 +346,11 @@ in
     };
     users.groups.outlook-mcp = { };
 
-    environment.systemPackages = [ loginTool ] ++ lib.optional cfg.funnel.enable tailscaleCli;
+    environment.systemPackages = [
+      loginTool
+      stdioTool
+    ]
+    ++ lib.optional cfg.funnel.enable tailscaleCli;
 
     systemd.tmpfiles.settings."10-outlook-mcp" = {
       ${stateDir}.d = {
