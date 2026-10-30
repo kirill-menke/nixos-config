@@ -1,0 +1,41 @@
+diff --git a/pkg/idp/idp.go b/pkg/idp/idp.go
+index e7088da..4cf6be3 100644
+--- a/pkg/idp/idp.go
++++ b/pkg/idp/idp.go
+@@ -8,6 +8,7 @@ import (
+ 	"math/big"
+ 	"net/http"
+ 	"net/url"
++	"os"
+ 	"strings"
+ 	"time"
+ 
+@@ -347,6 +348,28 @@ func (a *IDPRouter) handleRegister(c *gin.Context) {
+ 		return
+ 	}
+ 
++	// Only let clients register with redirect URIs from ALLOWED_REDIRECT_URIS
++	// (comma-separated), so an authorization code can't be sent anywhere else.
++	if allowed := os.Getenv("ALLOWED_REDIRECT_URIS"); allowed != "" {
++		allowedSet := map[string]bool{}
++		for _, u := range strings.Split(allowed, ",") {
++			if u = strings.TrimSpace(u); u != "" {
++				allowedSet[u] = true
++			}
++		}
++		if len(req.RedirectURIs) == 0 {
++			c.JSON(400, gin.H{"error": "invalid_redirect_uri", "error_description": "redirect_uris is required"})
++			return
++		}
++		for _, u := range req.RedirectURIs {
++			if !allowedSet[u] {
++				a.logger.Warn("Rejected client registration with disallowed redirect URI", zap.String("redirect_uri", u))
++				c.JSON(400, gin.H{"error": "invalid_redirect_uri", "error_description": "redirect URI not allowed: " + u})
++				return
++			}
++		}
++	}
++
+ 	clientID, err := utils.GenerateClientID()
+ 	if err != nil {
+ 		a.logger.Error("Failed to generate client ID", zap.Error(err))

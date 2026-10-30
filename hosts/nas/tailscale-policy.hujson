@@ -73,4 +73,16 @@
 			"users":  ["autogroup:nonroot", "root"],
 		},
 	],
+
+	// Tailscale Funnel (public HTTPS) for the NAS and nothing else: the Outlook
+	// MCP gate (hosts/nas/outlook.nix) is published on :10000. The attribute
+	// only permits Funnel; the box still has to run `tailscale funnel` itself.
+	// The console's default target is autogroup:member, which would let every
+	// member device -- invited guests included -- publish to the internet.
+	// Funnel was first switched on (2026-10-30) through the CLI's one-click
+	// enable link, which adds exactly that default; applying this file
+	// replaces it with the NAS-only rule.
+	"nodeAttrs": [
+		{"target": ["@NAS_TAILNET_IP@"], "attr": ["funnel"]},
+	],
 }
