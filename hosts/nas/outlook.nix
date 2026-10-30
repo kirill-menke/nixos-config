@@ -1,5 +1,6 @@
 #
-# Outlook (kirill.menke@outlook.de) for claude.ai, read-only.
+# Outlook (kirill.menke@outlook.de) for claude.ai and omp: read, write drafts and
+# organize, but never send or delete.
 #
 # The module, its two packages and the setup/operations guide live in
 # ./outlook-mcp (see README.md there). This file only says how this NAS runs it:
@@ -7,7 +8,9 @@
 #   claude.ai --HTTPS :443--> Tailscale Funnel on the tailnet node "outlook-mcp"
 #     --> mcp-auth-proxy 127.0.0.1:8471 (GitHub login, kirill-menke only)
 #           | stdio
-#         ms-365-mcp-server --> Graph (Mail.Read)
+#         ms-365-mcp-server --> Graph (Mail.ReadWrite)
+#
+#   omp (this PC) --> ssh nas sudo outlook-mcp-stdio --> the same server, stdio
 #
 # claude.ai's backend only connects to port 443, and this box's own node already
 # serves the tailnet-only finance API there. Funnel is switched on per host and
@@ -27,6 +30,37 @@
   services.outlook-mcp = {
     enable = true;
     microsoftAccount = "kirill.menke@outlook.de";
+    # Read, write drafts, organize. Nothing that sends mail (no Mail.Send), deletes
+    # or touches rules and mailbox settings (an auto-forward rule would leak all
+    # future mail). The token carries Mail.ReadWrite, which Graph would also accept
+    # for deleting, so this list is the boundary: the server exposes nothing else.
+    # --read-only would drop every write tool, hence off. After changing the list,
+    # sign in again (`sudo outlook-mcp-login`) so the token carries its scopes.
+    readOnly = false;
+    tools = [
+      # read
+      "list-mail-messages"
+      "list-mail-folders"
+      "list-mail-child-folders"
+      "list-mail-folder-messages"
+      "get-mail-message"
+      "read-mail-text"
+      "list-mail-attachments"
+      "get-mail-attachment-content"
+      # drafts: reviewed and sent by hand in Outlook
+      "create-draft-email"
+      "create-reply-draft"
+      "create-reply-all-draft"
+      "create-forward-draft"
+      "add-mail-attachment"
+      # organize: read/flag/categories, move or copy (Deleted Items included), folders
+      "update-mail-message"
+      "move-mail-message"
+      "copy-mail-message"
+      "create-mail-folder"
+      "create-mail-child-folder"
+      "update-mail-folder"
+    ];
     # https://outlook-mcp.<tailnet>.ts.net names the tailnet, which this public
     # repo never holds in plain text, so EXTERNAL_URL arrives through the sops
     # template below instead.

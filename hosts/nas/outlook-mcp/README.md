@@ -28,7 +28,9 @@ These are the tools exposed by default, and all of them need only `Mail.Read`. T
 | `get-mail-message`, `read-mail-text` | Read one message |
 | `list-mail-attachments`, `get-mail-attachment-content` | Read attachments |
 
-Nothing can send, move, delete or draft. `--read-only` drops write tools even if you add one to `tools` by mistake. List calls return at most `maxResults` items (25) and can't follow further pages.
+By default nothing can send, move, delete or draft. `--read-only` drops write tools even if you add one to `tools` by mistake. List calls return at most `maxResults` items (25) and can't follow further pages.
+
+To allow writing, set `readOnly = false` and add the tool names to `tools`, then run `sudo outlook-mcp-login` so the token gets the new scope. Drafts (`create-draft-email`, `create-reply-draft`, `create-reply-all-draft`, `create-forward-draft`, `add-mail-attachment`) and organizing (`update-mail-message`, `move-mail-message`, `copy-mail-message`, `create-mail-folder`, `create-mail-child-folder`, `update-mail-folder`) need `Mail.ReadWrite`, and nothing leaves the mailbox. Graph would also accept that scope for deleting, so the tool list is the boundary. Sending (`send-mail`, `send-draft-message`, `reply-*`, `forward-mail-message`) needs `Mail.Send` and lets an email with hidden instructions mail your data to anyone. Rules (`create-mail-rule`) can set up a silent auto-forward. `../outlook.nix` enables drafts and organizing.
 
 The stdio mode also always exposes the server's own account tools (`login`, `logout`, `verify-login`, `list-accounts`, `select-account`, `remove-account`), and they can't be filtered out. The account pin (`microsoftAccount`) stops them from switching to a different account. The worst they can do is sign the NAS out, and you fix that by running `sudo outlook-mcp-login` again.
 
