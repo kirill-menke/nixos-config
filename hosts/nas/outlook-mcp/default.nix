@@ -1,9 +1,12 @@
 # Outlook (personal Microsoft account) as a remote MCP server for claude.ai.
 #
-#   claude.ai ──HTTPS──▶ Tailscale Funnel ──▶ mcp-auth-proxy (OAuth 2.1, GitHub login)
-#                                                  │ stdio
-#                                                  ▼
-#                                          ms-365-mcp-server ──▶ Microsoft Graph
+#   claude.ai ──HTTPS :443──▶ Tailscale Funnel on the gate's own tailnet node
+#                                 │ (second tailscaled, userspace networking)
+#                                 ▼
+#                           mcp-auth-proxy (OAuth 2.1, GitHub login)
+#                                 │ stdio
+#                                 ▼
+#                           ms-365-mcp-server ──▶ Microsoft Graph
 #
 # Microsoft tokens never leave this machine: claude.ai only ever holds a token
 # for mcp-auth-proxy. See README.md for the one-time setup.
@@ -52,7 +55,7 @@ let
     MS365_MCP_EXTRA_SCOPES = "User.Read";
   };
 
-  # Effective port of externalUrl, to check it against funnel.port.
+  # Effective port of externalUrl; claude.ai's backend only connects to 443.
   urlPortMatch = builtins.match "https://[^/:]+(:([0-9]+))?" cfg.externalUrl;
   externalPort =
     if urlPortMatch == null then
@@ -103,7 +106,7 @@ let
     ];
     text = ''
       if [ "$(id -u)" -ne 0 ]; then
-        echo "Run as root: sudo outlook-mcp-login [status]" >&2
+        echo "Run as root: sudo outlook-mcp-login [login|status${lib.optionalString cfg.funnel.enable "|tailscale"}]" >&2
         exit 1
       fi
 
@@ -136,15 +139,29 @@ let
         status)
           verify
           ;;
+        ${lib.optionalString cfg.funnel.enable ''
+          tailscale)
+            echo "Log the node in as yourself at the URL below; it becomes ${cfg.funnel.hostname}.<tailnet>.ts.net."
+            ${tailscale} up --hostname=${lib.escapeShellArg cfg.funnel.hostname}
+            systemctl restart outlook-mcp-funnel.service
+            ${tailscale} funnel status
+            ;;
+        ''}
         *)
-          echo "usage: outlook-mcp-login [login|status]" >&2
+          echo "usage: outlook-mcp-login [login|status${lib.optionalString cfg.funnel.enable "|tailscale"}]" >&2
           exit 2
           ;;
       esac
     '';
   };
 
-  tailscale = lib.getExe config.services.tailscale.package;
+  # The `tailscale` CLI bound to the gate's own node (see funnel.enable).
+  tsSocket = "/run/outlook-mcp-tailscale/tailscaled.sock";
+  tailscaleCli = pkgs.writeShellApplication {
+    name = "outlook-mcp-tailscale";
+    text = ''exec ${lib.getExe config.services.tailscale.package} --socket=${tsSocket} "$@"'';
+  };
+  tailscale = lib.getExe tailscaleCli;
 in
 {
   options.services.outlook-mcp = {
@@ -172,13 +189,14 @@ in
 
     externalUrl = mkOption {
       type = types.nullOr (types.strMatching "https://[^/]+");
-      example = "https://nas.tail1234.ts.net:8443";
+      example = "https://outlook-mcp.tail1234.ts.net";
       description = ''
-        Public base URL claude.ai reaches the proxy at, without a trailing slash,
-        including the Funnel port unless it is 443. The connector URL is this plus /mcp.
-        Set to null to pass it as EXTERNAL_URL=... in `environmentFile` instead,
-        e.g. to keep the tailnet name out of a public repository; the Funnel port
-        check below is then skipped.
+        Public base URL claude.ai reaches the proxy at, without a trailing slash.
+        It must be on port 443, because claude.ai's backend connects to no other
+        port; with Funnel that is https://<funnel.hostname>.<tailnet>.ts.net. The
+        connector URL is this plus /mcp. Set to null to pass it as EXTERNAL_URL=...
+        in `environmentFile` instead, e.g. to keep the tailnet name out of a public
+        repository; the port check is then skipped.
       '';
     };
 
@@ -262,22 +280,26 @@ in
       enable = mkOption {
         type = types.bool;
         default = true;
-        description = "Publish the proxy through Tailscale Funnel.";
+        description = ''
+          Publish the proxy on port 443 through Tailscale Funnel from a tailnet node
+          of its own: a second tailscaled in userspace-networking mode with separate
+          state. claude.ai only connects to port 443, and Funnel is switched on per
+          host and port, so on the host's own node it would also publish whatever
+          else that node serves on 443. Log the node in once with
+          `sudo outlook-mcp-login tailscale`.
+        '';
       };
 
-      port = mkOption {
-        type = types.enum [
-          443
-          8443
-          10000
-        ];
-        default = 8443;
-        description = ''
-          Public Funnel port. Funnel is switched on per host:port, so every other
-          `tailscale serve` handler on the same port would become public too, and
-          stopping this unit removes all handlers on that port. Pick a port nothing
-          else serves on (check `tailscale serve status`).
-        '';
+      hostname = mkOption {
+        type = types.str;
+        default = "outlook-mcp";
+        description = "Device name of that node; its public address is https://<hostname>.<tailnet>.ts.net.";
+      };
+
+      wireguardPort = mkOption {
+        type = types.port;
+        default = 41642;
+        description = "UDP port of the node's WireGuard endpoint, opened in the firewall (the host's own tailscaled usually has 41641).";
       };
     };
   };
@@ -285,18 +307,12 @@ in
   config = lib.mkIf cfg.enable {
     assertions = [
       {
-        assertion = cfg.funnel.enable -> config.services.tailscale.enable;
-        message = "services.outlook-mcp.funnel needs services.tailscale.enable = true.";
-      }
-      {
         assertion = cfg.externalUrl != null -> !(lib.hasSuffix "/" cfg.externalUrl);
         message = "services.outlook-mcp.externalUrl must not end with a slash.";
       }
       {
-        assertion = cfg.funnel.enable && cfg.externalUrl != null -> externalPort == cfg.funnel.port;
-        message = "services.outlook-mcp.externalUrl must use the Funnel port (${toString cfg.funnel.port}), e.g. https://nas.tail1234.ts.net${
-          lib.optionalString (cfg.funnel.port != 443) ":${toString cfg.funnel.port}"
-        }.";
+        assertion = cfg.externalUrl != null -> externalPort == 443;
+        message = "services.outlook-mcp.externalUrl must use port 443: claude.ai's backend connects to no other port.";
       }
     ];
 
@@ -307,7 +323,7 @@ in
     };
     users.groups.outlook-mcp = { };
 
-    environment.systemPackages = [ loginTool ];
+    environment.systemPackages = [ loginTool ] ++ lib.optional cfg.funnel.enable tailscaleCli;
 
     systemd.tmpfiles.settings."10-outlook-mcp" = {
       ${stateDir}.d = {
@@ -386,25 +402,75 @@ in
       };
     };
 
-    systemd.services.outlook-mcp-funnel = lib.mkIf cfg.funnel.enable {
-      description = "Tailscale Funnel for the Outlook MCP server";
+    systemd.services.outlook-mcp-tailscaled = lib.mkIf cfg.funnel.enable {
+      description = "Tailscale node of the Outlook MCP server";
       wantedBy = [ "multi-user.target" ];
-      wants = [ "tailscaled.service" ];
-      after = [
-        "tailscaled.service"
-        "tailscaled-autoconnect.service"
-      ];
+      wants = [ "network-online.target" ];
+      after = [ "network-online.target" ];
+      serviceConfig = {
+        # Userspace networking: no TUN device and no routes or firewall rules on
+        # the host, so it cannot disturb the host's own tailscaled. Like any
+        # userspace node it relays tailnet connections for any port to this
+        # host's loopback (README, "Security notes"); Funnel only reaches :443.
+        ExecStart = utils.escapeSystemdExecArgs [
+          "${config.services.tailscale.package}/bin/tailscaled"
+          "--tun=userspace-networking"
+          "--statedir=/var/lib/outlook-mcp-tailscale"
+          "--socket=${tsSocket}"
+          "--port=${toString cfg.funnel.wireguardPort}"
+        ];
+        StateDirectory = "outlook-mcp-tailscale";
+        StateDirectoryMode = "0700";
+        RuntimeDirectory = "outlook-mcp-tailscale";
+        Restart = "on-failure";
+        RestartSec = 5;
+
+        NoNewPrivileges = true;
+        PrivateTmp = true;
+        PrivateDevices = true;
+        ProtectSystem = "strict";
+        ProtectHome = true;
+        ProtectKernelTunables = true;
+        ProtectKernelModules = true;
+        ProtectKernelLogs = true;
+        ProtectControlGroups = true;
+        ProtectClock = true;
+        RestrictNamespaces = true;
+        RestrictRealtime = true;
+        RestrictSUIDSGID = true;
+        LockPersonality = true;
+        # Userspace networking needs no capabilities; netlink is for its
+        # interface monitor.
+        CapabilityBoundingSet = "";
+        RestrictAddressFamilies = [
+          "AF_INET"
+          "AF_INET6"
+          "AF_UNIX"
+          "AF_NETLINK"
+        ];
+        SystemCallArchitectures = "native";
+      };
+    };
+
+    systemd.services.outlook-mcp-funnel = lib.mkIf cfg.funnel.enable {
+      description = "Tailscale Funnel on :443 of the Outlook MCP node";
+      wantedBy = [ "multi-user.target" ];
+      requires = [ "outlook-mcp-tailscaled.service" ];
+      after = [ "outlook-mcp-tailscaled.service" ];
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
-        ExecStart = "${tailscale} funnel --bg --yes --https=${toString cfg.funnel.port} http://127.0.0.1:${toString cfg.port}";
-        ExecStop = "${tailscale} funnel --https=${toString cfg.funnel.port} off";
-        # tailscaled may still be logging in right after boot.
+        ExecStart = "${tailscale} funnel --bg --yes --https=443 http://127.0.0.1:${toString cfg.port}";
+        ExecStop = "${tailscale} funnel --https=443 off";
+        # Fails until the node is logged in (`sudo outlook-mcp-login tailscale`)
+        # and while tailscaled is still connecting after boot.
         Restart = "on-failure";
         RestartSec = 15;
         TimeoutStartSec = 90;
       };
     };
+
+    networking.firewall.allowedUDPPorts = lib.mkIf cfg.funnel.enable [ cfg.funnel.wireguardPort ];
 
     # ms-365-mcp-server writes its own log files and never rotates them.
     services.logrotate.settings.outlook-mcp = {

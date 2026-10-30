@@ -3,7 +3,10 @@
 Read-only access to a personal Outlook mailbox for claude.ai, self-hosted on NixOS.
 
 ```
-claude.ai ──HTTPS :8443──▶ Tailscale Funnel ──▶ mcp-auth-proxy :8471 (127.0.0.1)
+claude.ai ──HTTPS :443──▶ Tailscale Funnel ──▶ tailnet node "outlook-mcp" (second tailscaled, userspace)
+                                                  │
+                                                  ▼
+                                           mcp-auth-proxy :8471 (127.0.0.1)
                                                   │  OAuth 2.1 gate, GitHub login
                                                   │  stdio
                                                   ▼
@@ -11,8 +14,8 @@ claude.ai ──HTTPS :8443──▶ Tailscale Funnel ──▶ mcp-auth-proxy :
 ```
 
 - **[ms-365-mcp-server](https://github.com/Softeria/ms-365-mcp-server)** talks to Outlook through Microsoft Graph. It signs in once with a device code using Softeria's public app registration, so no Azure tenant is needed. The Microsoft tokens stay in `/var/lib/outlook-mcp/msal`.
-- **[mcp-auth-proxy](https://github.com/sigbit/mcp-auth-proxy)** turns that stdio server into `https://<host>:8443/mcp` behind OAuth 2.1 with dynamic client registration. claude.ai signs in to this gate with your GitHub account and only ever holds a token for the gate, never a Microsoft token.
-- **Tailscale Funnel** publishes the gate on the internet, which works behind DS-Lite/CGNAT.
+- **[mcp-auth-proxy](https://github.com/sigbit/mcp-auth-proxy)** turns that stdio server into `https://outlook-mcp.<tailnet>.ts.net/mcp` behind OAuth 2.1 with dynamic client registration. claude.ai signs in to this gate with your GitHub account and only ever holds a token for the gate, never a Microsoft token.
+- **Tailscale Funnel** publishes the gate on the internet, which works behind DS-Lite/CGNAT. It runs on a tailnet node of its own, because claude.ai only connects to port 443 (see [Tailscale](#1-tailscale)).
 
 ## What Claude can do
 
@@ -44,27 +47,29 @@ pkgs/mcp-auth-proxy/restrict-redirect-uris.patch
 
 ## Setup
 
-The examples below use `nas.tail1234.ts.net`. Replace it with your NAS's name.
+The examples below use `outlook-mcp.tail1234.ts.net`, the gate's own node (`funnel.hostname`). Replace `tail1234` with your tailnet's name.
 
 ### 1. Tailscale
+
+claude.ai's backend only connects to MCP servers on port 443 ([anthropics/claude-ai-mcp#125](https://github.com/anthropics/claude-ai-mcp/issues/125)). On 8443 or 10000 the connector fails with "Couldn't reach", and no request ever arrives. Funnel is switched on per host and port, so funneling 443 on the host's own tailnet node would also publish whatever else that node serves there. The module therefore runs a second tailscaled in userspace-networking mode as a tailnet node of its own (`funnel.hostname`, default `outlook-mcp`), and Funnel runs only on that node's 443.
 
 In the Tailscale admin console:
 
 1. **DNS:** turn on MagicDNS and **HTTPS Certificates**.
-2. **Access controls:** the NAS needs the `funnel` node attribute. New tailnets have it for every member already:
+2. **Access controls:** the node needs the `funnel` node attribute. New tailnets grant it to every member:
    ```json
    "nodeAttrs": [{ "target": ["autogroup:member"], "attr": ["funnel"] }]
    ```
-   If it's missing, the first `tailscale funnel` run prints a link that adds it.
+   If it's missing, `tailscale funnel` prints a link that adds it. Once the node exists, you can narrow the target to its address.
 
-On the NAS:
+After the first switch, log the node in as yourself:
 
 ```sh
-tailscale status --json | jq -r .Self.DNSName   # e.g. nas.tail1234.ts.net.  → drop the trailing dot
-tailscale serve status                          # make sure nothing else uses :8443
+sudo outlook-mcp-login tailscale    # prints a login URL, then turns Funnel on
+sudo outlook-mcp-tailscale status   # `tailscale` bound to the gate's node
 ```
 
-Funnel is switched on per host and port, not per path. Any other `tailscale serve` handler on port 8443 would become public too, and stopping the funnel unit removes every handler on that port. That's why this setup uses its own port. If 8443 is taken, set `funnel.port = 10000;` and use `:10000` everywhere below.
+Check that the name resolves publicly with an IPv4 address, since claude.ai connects over IPv4: `dig @1.1.1.1 outlook-mcp.tail1234.ts.net A`. The first HTTPS requests can fail with a TLS error for a minute while the node fetches its certificate.
 
 ### 2. GitHub app for the login
 
@@ -75,8 +80,8 @@ The gate identifies you through GitHub. Either kind of GitHub app works, because
 
 Either way:
 
-- **Homepage URL:** `https://nas.tail1234.ts.net:8443`
-- **Authorization callback URL:** `https://nas.tail1234.ts.net:8443/.auth/github/callback`
+- **Homepage URL:** `https://outlook-mcp.tail1234.ts.net`
+- **Authorization callback URL:** `https://outlook-mcp.tail1234.ts.net/.auth/github/callback`
 
 Store the client ID and secret outside the Nix store:
 
@@ -98,21 +103,19 @@ Copy this folder next to your NAS configuration and import it:
 {
   imports = [ ./outlook-mcp ];
 
-  services.tailscale.enable = true;
-
   services.outlook-mcp = {
     enable = true;
     microsoftAccount = "kirill.menke@outlook.de";
-    externalUrl = "https://nas.tail1234.ts.net:8443";   # no trailing slash
+    externalUrl = "https://outlook-mcp.tail1234.ts.net";   # no trailing slash, no port
     github.allowedUsers = [ "YourGitHubLogin" ];        # exact capitalization, the match is case-sensitive
     environmentFile = "/etc/secrets/outlook-mcp.env";
   };
 }
 ```
 
-If the port in `externalUrl` doesn't match `funnel.port`, an assertion stops the build.
+`externalUrl` must be on port 443; an assertion stops the build otherwise.
 
-To keep the host name out of a public repository, set `externalUrl = null` and add `EXTERNAL_URL=https://nas.tail1234.ts.net:8443` to the environment file instead; the port check is skipped then. `../outlook.nix` does this with a sops-nix template.
+To keep the host name out of a public repository, set `externalUrl = null` and add `EXTERNAL_URL=https://outlook-mcp.tail1234.ts.net` to the environment file instead; the port check is skipped then. `../outlook.nix` does this with a sops-nix template.
 
 The proxy needs Go ≥ 1.26.2, which nixos-unstable has. If your channel's default `go` is older, override the package:
 
@@ -136,17 +139,17 @@ The script checks the result with a Graph call and then starts the service. The 
 ### 5. Check the public endpoint
 
 ```sh
-curl -s https://nas.tail1234.ts.net:8443/.well-known/oauth-authorization-server | jq .registration_endpoint
-curl -si https://nas.tail1234.ts.net:8443/mcp | head -1      # expect a 401
+curl -s https://outlook-mcp.tail1234.ts.net/.well-known/oauth-authorization-server | jq .registration_endpoint
+curl -si https://outlook-mcp.tail1234.ts.net/mcp | head -1      # expect a 401
 ```
 
 ### 6. Connect claude.ai
 
 1. Go to **Customize → Connectors**, choose **+ Add**, then **Add custom connector**.
-2. **Name:** `Outlook`. **URL:** `https://nas.tail1234.ts.net:8443/mcp`.
+2. **Name:** `Outlook`. **URL:** `https://outlook-mcp.tail1234.ts.net/mcp`.
 3. **Authentication:** sign in.
 4. **OAuth client:** **Register automatically**. The proxy supports dynamic client registration but not Claude's published-identity option.
-5. Sign in with GitHub in the window that opens.
+5. Sign in with GitHub in the window that opens, then click **Authorize** on the gate's page. If no window opens, allow pop-ups for claude.ai and click **Connect** on the connector.
 
 In a chat, turn it on under **+ → Connectors**.
 
@@ -154,7 +157,8 @@ In a chat, turn it on under **+ → Connectors**.
 
 | | |
 | --- | --- |
-| Status | `systemctl status outlook-mcp outlook-mcp-funnel` |
+| Status | `systemctl status outlook-mcp outlook-mcp-tailscaled outlook-mcp-funnel`; `sudo outlook-mcp-tailscale funnel status` |
+| Gate node logged out | `sudo outlook-mcp-login tailscale` |
 | Logs | `journalctl -u outlook-mcp` and `/var/log/outlook-mcp/*.log` (rotated weekly) |
 | Microsoft sign-in lapsed | `sudo outlook-mcp-login` |
 | Change tools | Edit `services.outlook-mcp.tools`, switch, then `sudo outlook-mcp-login` so the token gets the new scopes |
@@ -164,13 +168,16 @@ In a chat, turn it on under **+ → Connectors**.
 ### Revoking access
 
 - **claude.ai:** remove the connector under Customize → Connectors.
+- **Public endpoint:** `sudo systemctl stop outlook-mcp-funnel` turns Funnel off. Removing the node under Machines in the admin console drops it from the tailnet.
 - **Gate:** `sudo systemctl stop outlook-mcp && sudo rm -rf /var/lib/outlook-mcp/auth`. This invalidates every token and client the gate has issued.
 - **Microsoft:** remove the app at <https://account.live.com/consent/Manage>, then delete `/var/lib/outlook-mcp/msal`.
-- **GitHub:** delete the OAuth app.
+- **GitHub:** delete the GitHub app.
 
 ## Security notes
 
 - **Only the gate is public.** `/mcp` requires a gate token, which requires a GitHub login as one of `allowedUsers`.
+- **Scanners find it within minutes.** The node's certificate lands in public Certificate Transparency logs, and scanners start probing right away. Everything except the OAuth metadata and the login endpoints answers 401.
+- **The gate's node relays tailnet traffic to this host's loopback.** Like any userspace-networking node, it forwards tailnet connections for any port to 127.0.0.1 here, so every device the tailnet policy lets reach that node can reach loopback-only services through it. Funnel itself only delivers to :443. Keep the node reachable only by devices you already trust with the host.
 - **Redirect URIs are pinned.** Upstream mcp-auth-proxy accepts any redirect URI at registration, and its consent page doesn't say which client is asking. That means a crafted link could otherwise hand someone a mail-reading token after a single click from you. The bundled patch only accepts `allowedRedirectUris` (claude.ai's callback), so codes can only ever go to claude.ai. GitHub 2FA doesn't help against that attack once you've authorized the OAuth app, which is why the patch matters.
 - **The token cache isn't safe in backups.** It's AES-encrypted, but its key file (`.cache-key`) sits in the same directory, owned by the `outlook-mcp` user. Anything that copies `/var/lib/outlook-mcp/msal`, including ZFS snapshots or replication of that dataset, gets a working Microsoft session. Exclude that directory, or treat those backups as secrets.
 - **Mail text reaches Anthropic** whenever Claude reads a message for you, the same as with any connector.

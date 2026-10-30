@@ -8,13 +8,14 @@
 // a browser text box with no history and no review.
 //
 // This repo is public, so the file names no tailnet address or account: the
-// owner is autogroup:owner, and the NAS address is the @NAS_TAILNET_IP@
-// placeholder, filled in from the node itself at apply time.
+// owner is autogroup:owner, and node addresses are @..._TAILNET_IP@
+// placeholders, filled in from the nodes themselves at apply time.
 //
 // Apply after editing (needs an access token from the admin console,
 // Settings -> Keys; treat it like a password and revoke when done):
 //
-//   sed "s/@NAS_TAILNET_IP@/$(ssh kirill@nas.local tailscale ip -4)/" \
+//   sed -e "s/@NAS_TAILNET_IP@/$(ssh kirill@nas.local tailscale ip -4)/" \
+//       -e "s/@OUTLOOK_MCP_TAILNET_IP@/$(ssh kirill@nas.local sudo outlook-mcp-tailscale ip -4)/" \
 //     hosts/nas/tailscale-policy.hujson |
 //   curl -sS -X POST \
 //     -H "Authorization: Bearer $TS_API_TOKEN" \
@@ -74,15 +75,17 @@
 		},
 	],
 
-	// Tailscale Funnel (public HTTPS) for the NAS and nothing else: the Outlook
-	// MCP gate (hosts/nas/outlook.nix) is published on :10000. The attribute
-	// only permits Funnel; the box still has to run `tailscale funnel` itself.
+	// Tailscale Funnel (public HTTPS) for one node only: "outlook-mcp", the
+	// Outlook MCP gate's own tailscaled on the NAS (hosts/nas/outlook.nix),
+	// published on :443 because claude.ai connects to no other port. The NAS's
+	// main node needs no Funnel. The attribute only permits Funnel; the node
+	// still has to run `tailscale funnel` itself.
 	// The console's default target is autogroup:member, which would let every
 	// member device -- invited guests included -- publish to the internet.
 	// Funnel was first switched on (2026-10-30) through the CLI's one-click
 	// enable link, which adds exactly that default; applying this file
-	// replaces it with the NAS-only rule.
+	// replaces it with the single-node rule.
 	"nodeAttrs": [
-		{"target": ["@NAS_TAILNET_IP@"], "attr": ["funnel"]},
+		{"target": ["@OUTLOOK_MCP_TAILNET_IP@"], "attr": ["funnel"]},
 	],
 }
