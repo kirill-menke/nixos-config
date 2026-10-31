@@ -6,7 +6,8 @@
 # file once it has been unchanged for 5 s, OCRs it (German + English), files it
 # and deletes it from the share. A stack holding several documents is split at
 # PATCH-T separator sheets (a page carrying a "PATCHT" barcode); the separator
-# pages themselves are dropped.
+# pages themselves are dropped. Scanner stacks go in face up, in reading order
+# (see reverseScanPages below).
 #
 # Where things live:
 #   /var/lib/paperless           SQLite database, search index, originals and
@@ -27,6 +28,30 @@ let
   httpsPort = 10443;
   lanIf = "enp2s0";
   serve = "${pkgs.tailscale}/bin/tailscale serve";
+
+  # The ADS-1800W wants stacks face down, top edge first: it feeds the sheet
+  # facing its front, so page 1 has to sit at the bottom. Loaded the way a stack
+  # is read instead (face up, page 1 on top, top edge first), it feeds the last
+  # sheet first and its front sensor sees each sheet's back side. The images
+  # still come out upright, just in exactly reverse order (last back side
+  # first), which this puts right. The scanner has no page-order setting.
+  #
+  # Runs as the pre-consume script, i.e. after the PATCH-T split, once per
+  # resulting document; split parts keep the source's file name stem. Only the
+  # scanner's own files (named after its node name) are touched, so web/API
+  # uploads keep their order. Paperless stores the modified working copy as the
+  # original.
+  reverseScanPages = pkgs.writeShellApplication {
+    name = "paperless-reverse-scan-pages";
+    runtimeInputs = [ pkgs.qpdf ];
+    text = ''
+      case "''${DOCUMENT_SOURCE_PATH##*/}" in
+        BRW5CF370E4AA70_*.pdf) ;;
+        *) exit 0 ;;
+      esac
+      qpdf --warning-exit-0 --replace-input "$DOCUMENT_WORKING_PATH" --pages . z-1 --
+    '';
+  };
 in
 {
   services.paperless = {
@@ -44,6 +69,7 @@ in
       PAPERLESS_OCR_LANGUAGE = "deu+eng";
       PAPERLESS_CONSUMER_ENABLE_BARCODES = true;
       PAPERLESS_FILENAME_FORMAT = "{{ created_year }}/{{ correspondent }}/{{ title }}";
+      PAPERLESS_PRE_CONSUME_SCRIPT = "${reverseScanPages}/bin/paperless-reverse-scan-pages";
 
       # The N150 has 4 cores and no SMT, shared with Jellyfin (media.nix gives
       # ffmpeg 3 threads). One document at a time, two pages in parallel, so a
