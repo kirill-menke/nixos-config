@@ -71,6 +71,17 @@
   # Re-check this after any `nix flake update`.
   boot.kernelPackages = pkgs.linuxPackages;
 
+  # 7.5 GiB RAM, no swap partition, and many resident services (microVMs,
+  # claude-remote-*, the *arr apps, Jellyfin, Paperless OCR). Compressed swap
+  # in RAM lets idle memory be squeezed instead of the box thrashing its page
+  # cache under a memory burst (2026-10-31: two Paperless OCR workers without
+  # swap stalled SSH and AdGuard DNS for ~15 minutes).
+  zramSwap = {
+    enable = true;
+    algorithm = "zstd";
+    memoryPercent = 50;
+  };
+
   #############################################################################
   # ZFS
   #############################################################################

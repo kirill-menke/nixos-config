@@ -72,10 +72,16 @@ in
       PAPERLESS_PRE_CONSUME_SCRIPT = "${reverseScanPages}/bin/paperless-reverse-scan-pages";
 
       # The N150 has 4 cores and no SMT, shared with Jellyfin (media.nix gives
-      # ffmpeg 3 threads). One document at a time, two pages in parallel, so a
-      # big scanning backlog cannot starve playback.
-      PAPERLESS_TASK_WORKERS = 1;
+      # ffmpeg 3 threads). Two documents at a time, two pages each, so a
+      # scanning backlog uses all four cores; RAM is the real limit, see the
+      # memory cap below and zramSwap in default.nix.
+      PAPERLESS_TASK_WORKERS = 2;
       PAPERLESS_THREADS_PER_WORKER = 2;
+
+      # No unpaper pass before OCR: it is single-threaded, ran at 100% CPU on
+      # every page and needs ~250 MB per worker, while the ADS-1800W delivers
+      # clean ADF scans that gain nothing from it.
+      PAPERLESS_OCR_CLEAN = "none";
     };
 
     # Runs nightly at 01:30; stops the Paperless services for its duration.
@@ -83,6 +89,15 @@ in
       enable = true;
       directory = "/tank/data/paperless-export";
     };
+  };
+
+  # Two OCR workers sit around 1.3-1.5 GB. Above MemoryHigh the workers are
+  # throttled (their memory goes to zram), at MemoryMax the kernel kills inside
+  # this unit (one failed consume task) instead of starving AdGuard, the
+  # microVMs and the rest of the box.
+  systemd.services.paperless-task-queue.serviceConfig = {
+    MemoryHigh = "2000M";
+    MemoryMax = "2800M";
   };
 
   # Admin login. Changing the secret re-runs the module's manage_superuser on
