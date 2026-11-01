@@ -23,7 +23,7 @@
 # name. One-time setup, as kirill:
 #   rbw config set email <account email>
 #   rbw config set base_url http://127.0.0.1:8222
-#   rbw login     # asks for the master password (pinentry-curses)
+#   rbw login     # asks for the master password on the terminal
 # Then `rbw get <name>`; the agent forgets the key again after an hour.
 #
 # Where things live:
@@ -106,7 +106,12 @@ in
   environment.systemPackages = [
     signups
     pkgs.rbw
-    pkgs.pinentry-curses # rbw's master-password prompt in an SSH session
+    # rbw's master-password prompt. Not curses: rbw-agent starts pinentry with
+    # the agent's own environment, so a curses prompt fails ("Screen or window
+    # too small") when the agent was started without the caller's TERM, or
+    # when this box lacks the terminal's terminfo (kitty's). The tty one needs
+    # neither.
+    pkgs.pinentry-tty
   ];
 
   services.vaultwarden = {
