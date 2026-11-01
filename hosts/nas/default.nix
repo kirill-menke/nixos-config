@@ -36,6 +36,7 @@
     ./secrets.nix
     ./subtitles.nix
     ./tailscale.nix
+    ./vaultwarden.nix
     ./vibereel-phone.nix
     ./vibereel-web.nix
     ./vpn.nix
