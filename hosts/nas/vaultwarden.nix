@@ -18,6 +18,14 @@
 # (no ADMIN_TOKEN): there is no token to leak, and no admin-saved config.json
 # that would silently override this file.
 #
+# Passwords in this box's shell: `rbw`, an unofficial Bitwarden CLI. It talks to
+# the server over loopback, because this box can't resolve its own MagicDNS
+# name. One-time setup, as kirill:
+#   rbw config set email <account email>
+#   rbw config set base_url http://127.0.0.1:8222
+#   rbw login     # asks for the master password (pinentry-curses)
+# Then `rbw get <name>`; the agent forgets the key again after an hour.
+#
 # Where things live:
 #   /var/lib/vaultwarden           SQLite database, attachments, sends and the
 #                                  key that signs login tokens (NVMe)
@@ -95,7 +103,11 @@ let
   };
 in
 {
-  environment.systemPackages = [ signups ];
+  environment.systemPackages = [
+    signups
+    pkgs.rbw
+    pkgs.pinentry-curses # rbw's master-password prompt in an SSH session
+  ];
 
   services.vaultwarden = {
     enable = true;
