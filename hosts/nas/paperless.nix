@@ -54,6 +54,8 @@ let
   };
 in
 {
+  imports = [ ./paperless-ai.nix ];
+
   services.paperless = {
     enable = true;
     # All interfaces, so a boot never races the static LAN address; the
