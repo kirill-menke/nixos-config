@@ -30,11 +30,13 @@ let
   serve = "${pkgs.tailscale}/bin/tailscale serve";
 
   # The ADS-1800W wants stacks face down, top edge first: it feeds the sheet
-  # facing its front, so page 1 has to sit at the bottom. Loaded the way a stack
-  # is read instead (face up, page 1 on top, top edge first), it feeds the last
-  # sheet first and its front sensor sees each sheet's back side. The images
-  # still come out upright, just in exactly reverse order (last back side
-  # first), which this puts right. The scanner has no page-order setting.
+  # facing its front, so page 1 has to sit at the bottom. The stack is loaded
+  # the way it is read instead: face up, page 1 on top, bottom edge first
+  # (since 2026-11-02; before that top edge first). The scanner then feeds the
+  # last sheet first and its front sensor sees each sheet's back side, so the
+  # images come out in exactly reverse order (last back side first) and upside
+  # down. This reverses and turns every page; the scanner has no page-order
+  # setting.
   #
   # Runs as the pre-consume script, i.e. after the PATCH-T split, once per
   # resulting document; split parts keep the source's file name stem. Only the
@@ -49,7 +51,7 @@ let
         BRW5CF370E4AA70_*.pdf) ;;
         *) exit 0 ;;
       esac
-      qpdf --warning-exit-0 --replace-input "$DOCUMENT_WORKING_PATH" --pages . z-1 --
+      qpdf --warning-exit-0 --replace-input "$DOCUMENT_WORKING_PATH" --pages . z-1 -- --rotate=+180
     '';
   };
 in
