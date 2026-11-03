@@ -171,7 +171,13 @@ MCP clients on a machine that can SSH into the NAS (omp, Claude Code, Claude Des
 }
 ```
 
-`outlook-mcp-stdio` runs the server as `outlook-mcp` with the service's tools, `--read-only` and account pin, and shares its token cache. The server re-reads the cache from disk before every access, so concurrent processes stay consistent. It needs root on the NAS, so anyone who can use it could read the mailbox anyway. Each connected client starts its own Node process on the NAS (about 130–160 MiB) for as long as its session lasts.
+`outlook-mcp-stdio` runs the server as `outlook-mcp` with the service's tools, `--read-only` and account pin, and shares its token cache. The server re-reads the cache from disk before every access, so concurrent processes stay consistent. It needs root on the NAS, so anyone who can use it could read the mailbox anyway. Without shared mode, each connected client starts its own Node process on the NAS (about 100–160 MiB) for as long as its session lasts.
+
+### 8. One server for all local clients (`shared.enable`, optional)
+
+With `services.outlook-mcp.shared.enable = true`, `outlook-mcp-mux.service` runs a single server and serves it on the Unix socket `/run/outlook-mcp-mux/mcp.sock` (mode 0660, group `outlook-mcp-clients`, members from `shared.users`). `mux.py` initialises the server once, answers each client's `initialize` and `ping` itself and forwards everything else with request ids rewritten, so any number of sessions share it. `outlook-mcp-client` (socat) connects a stdio client to the socket, and `outlook-mcp-stdio` becomes such a connection too, so existing `ssh nas sudo outlook-mcp-stdio` configs keep working. Another machine forwards the socket over one SSH connection, e.g. `ssh -N -L /run/outlook-mcp/mcp.sock:/run/outlook-mcp-mux/mcp.sock nas`, and its clients run socat on that end.
+
+Why a socket and not upstream's `--http` mode: in HTTP mode ms-365-mcp-server expects every request to carry the caller's own Microsoft token (`401 Missing or malformed Authorization header` otherwise) and ignores the local token cache. A Unix socket also keeps the server off the tailnet; the gate's userspace node relays tailnet connections to every loopback TCP port. The gate itself keeps its own server.
 
 ## Operations
 

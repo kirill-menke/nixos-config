@@ -10,7 +10,9 @@
 #           | stdio
 #         ms-365-mcp-server --> Graph (Mail.ReadWrite)
 #
-#   omp (this PC) --> ssh nas sudo outlook-mcp-stdio --> the same server, stdio
+#   omp (PC and NAS) --> outlook-mcp-client --> one shared server for all
+#     sessions (outlook-mcp-mux, Unix socket); the PC reaches the socket
+#     through one SSH tunnel (hosts/pc/outlook-mcp.nix)
 #
 # claude.ai's backend only connects to port 443, and this box's own node already
 # serves the tailnet-only finance API there. Funnel is switched on per host and
@@ -61,6 +63,12 @@
       "create-mail-child-folder"
       "update-mail-folder"
     ];
+    # Every omp session used to start its own server over SSH (~100 MB each on
+    # this box; 17 at once in a busy agent run). Now they share one.
+    shared = {
+      enable = true;
+      users = [ "kirill" ];
+    };
     # https://outlook-mcp.<tailnet>.ts.net names the tailnet, which this public
     # repo never holds in plain text, so EXTERNAL_URL arrives through the sops
     # template below instead.

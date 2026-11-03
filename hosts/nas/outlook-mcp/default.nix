@@ -102,10 +102,25 @@ let
     lib.escapeShellArgs (lib.mapAttrsToList (n: v: "${n}=${v}") serverEnv)
   } ${lib.escapeShellArgs serverCommand}";
 
-  # The same server on stdin/stdout, for MCP clients that reach this host over
-  # SSH instead of through the public gate: `ssh <host> sudo outlook-mcp-stdio`.
-  # It shares the token cache with the service, which upstream keeps coherent
-  # by re-reading it from disk before every access (buildDiskCoherencyCachePlugin).
+  # Shared mode: one server for every MCP client on this host. mux.py runs it as
+  # a child and serves its stdio protocol on a Unix socket, which clients reach
+  # with `outlook-mcp-client`. Access is the socket's: mode 0660, group
+  # outlook-mcp-clients. Being a Unix socket also keeps it off the tailnet, which
+  # the gate's userspace node relays to every loopback TCP port.
+  muxSocket = "/run/outlook-mcp-mux/mcp.sock";
+  clientGroup = "outlook-mcp-clients";
+  connect = "${pkgs.socat}/bin/socat STDIO UNIX-CONNECT:${muxSocket}";
+
+  clientTool = pkgs.writeShellApplication {
+    name = "outlook-mcp-client";
+    text = "exec ${connect}";
+  };
+
+  # The server on stdin/stdout, for MCP clients that reach this host over SSH
+  # instead of through the public gate: `ssh <host> sudo outlook-mcp-stdio`. In
+  # shared mode that is a connection to the shared server; otherwise a server of
+  # its own, sharing the token cache with the service (upstream keeps the cache
+  # coherent by re-reading it from disk before every access).
   stdioTool = pkgs.writeShellApplication {
     name = "outlook-mcp-stdio";
     runtimeInputs = [
@@ -117,7 +132,7 @@ let
         echo "Run as root: sudo outlook-mcp-stdio" >&2
         exit 1
       fi
-      exec ${runServer}
+      exec ${if cfg.shared.enable then connect else runServer}
     '';
   };
 
@@ -156,8 +171,8 @@ let
             echo "Sign-in did not work; the service was left as it is." >&2
             exit 1
           fi
-          systemctl restart outlook-mcp.service
-          echo "Signed in; outlook-mcp.service restarted."
+          systemctl restart outlook-mcp.service${lib.optionalString cfg.shared.enable " outlook-mcp-mux.service"}
+          echo "Signed in; the server restarted."
           ;;
         status)
           verify
@@ -185,6 +200,49 @@ let
     text = ''exec ${lib.getExe config.services.tailscale.package} --socket=${tsSocket} "$@"'';
   };
   tailscale = lib.getExe tailscaleCli;
+
+  # The server's sandbox: the gate's service and the shared server use it.
+  serverService = {
+    User = "outlook-mcp";
+    Group = "outlook-mcp";
+    WorkingDirectory = stateDir;
+    StateDirectory = "outlook-mcp";
+    StateDirectoryMode = "0700";
+    LogsDirectory = "outlook-mcp";
+    LogsDirectoryMode = "0750";
+
+    UMask = "0077";
+    NoNewPrivileges = true;
+    PrivateTmp = true;
+    PrivateDevices = true;
+    ProtectSystem = "strict";
+    ProtectHome = true;
+    ProtectKernelTunables = true;
+    ProtectKernelModules = true;
+    ProtectKernelLogs = true;
+    ProtectControlGroups = true;
+    ProtectClock = true;
+    ProtectHostname = true;
+    ProtectProc = "invisible";
+    ProcSubset = "pid";
+    RestrictAddressFamilies = [
+      "AF_INET"
+      "AF_INET6"
+      "AF_UNIX"
+    ];
+    RestrictNamespaces = true;
+    RestrictRealtime = true;
+    RestrictSUIDSGID = true;
+    LockPersonality = true;
+    CapabilityBoundingSet = "";
+    SystemCallArchitectures = "native";
+    SystemCallFilter = [
+      "@system-service"
+      "@pkey" # V8 uses memory protection keys on CPUs that have them
+      "~@privileged"
+    ];
+    # Node's JIT needs writable+executable memory, so no MemoryDenyWriteExecute.
+  };
 in
 {
   options.services.outlook-mcp = {
@@ -325,6 +383,22 @@ in
         description = "UDP port of the node's WireGuard endpoint, opened in the firewall (the host's own tailscaled usually has 41641).";
       };
     };
+
+    shared = {
+      enable = mkEnableOption ''
+        one server shared by every MCP client on this host (`outlook-mcp-client`,
+        and `sudo outlook-mcp-stdio` over SSH), instead of one server per client.
+        claude.ai's gate keeps its own'';
+      users = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+        example = [ "alice" ];
+        description = ''
+          Users who may connect to the shared server, and so use the mailbox
+          (members of the group outlook-mcp-clients). Root always can.
+        '';
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -350,7 +424,8 @@ in
       loginTool
       stdioTool
     ]
-    ++ lib.optional cfg.funnel.enable tailscaleCli;
+    ++ lib.optional cfg.funnel.enable tailscaleCli
+    ++ lib.optional cfg.shared.enable clientTool;
 
     systemd.tmpfiles.settings."10-outlook-mcp" = {
       ${stateDir}.d = {
@@ -382,50 +457,45 @@ in
         ALLOWED_REDIRECT_URIS = lib.concatStringsSep "," cfg.allowedRedirectUris;
       };
 
-      serviceConfig = {
+      serviceConfig = serverService // {
         ExecStart = utils.escapeSystemdExecArgs proxyCommand;
         EnvironmentFile = cfg.environmentFile;
-        User = "outlook-mcp";
-        Group = "outlook-mcp";
-        WorkingDirectory = stateDir;
-        StateDirectory = "outlook-mcp";
-        StateDirectoryMode = "0700";
-        LogsDirectory = "outlook-mcp";
-        LogsDirectoryMode = "0750";
         Restart = "on-failure";
         RestartSec = 10;
+      };
+    };
 
-        UMask = "0077";
-        NoNewPrivileges = true;
-        PrivateTmp = true;
-        PrivateDevices = true;
-        ProtectSystem = "strict";
-        ProtectHome = true;
-        ProtectKernelTunables = true;
-        ProtectKernelModules = true;
-        ProtectKernelLogs = true;
-        ProtectControlGroups = true;
-        ProtectClock = true;
-        ProtectHostname = true;
-        ProtectProc = "invisible";
-        ProcSubset = "pid";
-        RestrictAddressFamilies = [
-          "AF_INET"
-          "AF_INET6"
-          "AF_UNIX"
-        ];
-        RestrictNamespaces = true;
-        RestrictRealtime = true;
-        RestrictSUIDSGID = true;
-        LockPersonality = true;
-        CapabilityBoundingSet = "";
-        SystemCallArchitectures = "native";
-        SystemCallFilter = [
-          "@system-service"
-          "@pkey" # V8 uses memory protection keys on CPUs that have them
-          "~@privileged"
-        ];
-        # Node's JIT needs writable+executable memory, so no MemoryDenyWriteExecute.
+    users.groups.${clientGroup} = lib.mkIf cfg.shared.enable { members = cfg.shared.users; };
+
+    systemd.services.outlook-mcp-mux = lib.mkIf cfg.shared.enable {
+      description = "Outlook MCP server shared by this host's MCP clients";
+      wantedBy = [ "multi-user.target" ];
+      wants = [ "network-online.target" ];
+      after = [ "network-online.target" ];
+      # Stays inactive until `sudo outlook-mcp-login` has created the token cache.
+      unitConfig.ConditionPathExists = tokenCache;
+      environment = serverEnv;
+      serviceConfig = serverService // {
+        ExecStart = utils.escapeSystemdExecArgs (
+          [
+            (lib.getExe pkgs.python3)
+            "${./mux.py}"
+            muxSocket
+            clientGroup
+          ]
+          ++ serverCommand
+        );
+        # Lets mux.py give the socket this group; the server's own files keep
+        # group outlook-mcp. That chown is in @privileged, hence @chown.
+        SupplementaryGroups = [ clientGroup ];
+        SystemCallFilter = serverService.SystemCallFilter ++ [ "@chown" ];
+        RuntimeDirectory = "outlook-mcp-mux";
+        RuntimeDirectoryMode = "0755";
+        Restart = "on-failure";
+        RestartSec = 5;
+        # One Node server (~100-150 MB) and the mux; a leak must not take the box.
+        MemoryHigh = "384M";
+        MemoryMax = "512M";
       };
     };
 
