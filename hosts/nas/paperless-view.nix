@@ -1,6 +1,6 @@
 #
 # Paperless's documents as plain files, one per document, for the PC to mount
-# read-only at /mnt/paperless (hosts/pc/paperless.nix).
+# at /mnt/paperless (hosts/pc/paperless.nix), with an inbox for new ones.
 #
 # paperless-view.service rebuilds the tree in /var/lib/paperless/view every
 # minute: <year>/<correspondent>/<title>.pdf, each the file the web UI's
@@ -9,26 +9,41 @@
 # The tree stays outside MEDIA_ROOT, where Paperless's sanity check would
 # report every link as an orphaned file.
 #
-# The links keep Paperless's owner and mode (paperless, 0600), so the PC logs
-# in as kirill and runs the SFTP server as the paperless user, read-only:
-# paperless-view-sftp. That grants nothing new, as kirill has passwordless
-# sudo here.
+# paperless-view-sftp serves the tree to the PC, which logs in as kirill. The
+# links keep Paperless's owner and mode (paperless, 0600) and are Paperless's
+# own stored files, so sftp-server runs as the paperless user in a sandbox
+# where the whole file system is read-only except inbox/: there the
+# consumption directory (the scanner's share, scans.nix) is bound over the
+# empty directory the service keeps, so a file copied in is consumed like a
+# scan. That grants nothing new, as kirill has passwordless sudo here.
 #
 { config, pkgs, ... }:
 let
   cfg = config.services.paperless;
   viewDir = "${cfg.dataDir}/view";
+  inbox = "inbox";
 
   generator = pkgs.writers.writePython3Bin "paperless-view" { } (
     builtins.readFile ./paperless-view.py
   );
 
   # sshfs takes it by path (-o sftp_server=/run/current-system/sw/bin/...):
-  # a name without a slash would be looked up as an sshd subsystem.
+  # a name without a slash would be looked up as an sshd subsystem. Each SFTP
+  # session is a transient unit that ends when the PC disconnects.
   sftp = pkgs.writeShellApplication {
     name = "paperless-view-sftp";
     text = ''
-      exec /run/wrappers/bin/sudo -n -u ${cfg.user} ${config.services.openssh.package}/libexec/sftp-server -R
+      exec /run/wrappers/bin/sudo -n ${config.systemd.package}/bin/systemd-run \
+        --quiet --pipe --wait --collect --service-type=exec \
+        --description="Paperless view over SFTP" \
+        --property=User=${cfg.user} \
+        --property=ProtectSystem=strict \
+        --property=BindPaths=${cfg.consumptionDir}:${viewDir}/${inbox} \
+        --property=ProtectHome=yes \
+        --property=PrivateTmp=yes \
+        --property=PrivateNetwork=yes \
+        --property=NoNewPrivileges=yes \
+        ${config.services.openssh.package}/libexec/sftp-server
     '';
   };
 in
@@ -46,7 +61,7 @@ in
     serviceConfig = {
       Type = "oneshot";
       User = cfg.user;
-      ExecStart = "${generator}/bin/paperless-view ${cfg.dataDir}/db.sqlite3 ${cfg.mediaDir}/documents ${viewDir}";
+      ExecStart = "${generator}/bin/paperless-view ${cfg.dataDir}/db.sqlite3 ${cfg.mediaDir}/documents ${viewDir} ${inbox}";
       # It runs every minute, so systemd's info messages (started, finished)
       # stay out of the journal; its own lines (what changed) and failures
       # are notices and above.

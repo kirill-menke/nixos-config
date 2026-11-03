@@ -1,4 +1,4 @@
-"""paperless-view DATABASE DOCUMENTS VIEW: each Paperless document as a file.
+"""paperless-view DATABASE DOCUMENTS VIEW INBOX: Paperless documents as files.
 
 DOCUMENTS (Paperless's media/documents) is no clean picture of the library: it
 keeps the documents in the trash until the trash is emptied, the older files
@@ -11,9 +11,10 @@ original otherwise, named like Paperless's storage (PAPERLESS_FILENAME_FORMAT:
 
 The files are hardlinks, so they take no space and keep Paperless's owner and
 permissions; VIEW must be on the file system of DOCUMENTS. DATABASE (SQLite)
-is only read. Each run brings VIEW up to date and prints a line if anything
-changed; a file Paperless renames or deletes during a run is picked up by the
-next one.
+is only read. VIEW/INBOX is kept as an empty directory and never entered: it
+is the mount point paperless-view-sftp binds the inbox onto. Each run brings
+VIEW up to date and prints a line if anything changed; a file Paperless
+renames or deletes during a run is picked up by the next one.
 """
 
 import os
@@ -78,10 +79,12 @@ def documents(database, storage):
     return tree
 
 
-def sync(view, tree):
-    """Make VIEW hold exactly TREE: link what is new or changed, then prune."""
+def sync(view, tree, inbox):
+    """Make VIEW hold exactly TREE and INBOX: link what is new or changed,
+    then prune."""
     linked = removed = 0
     failed = []
+    (view / inbox).mkdir(exist_ok=True)
     for path, source in tree.items():
         target = view / path
         try:
@@ -107,22 +110,29 @@ def sync(view, tree):
             continue
         linked += 1
 
-    for directory, _, names in os.walk(view, topdown=False):
+    directories = []
+    for directory, subdirectories, names in os.walk(view):
         directory = Path(directory)
+        if directory == view:
+            subdirectories[:] = [d for d in subdirectories if d != inbox]
+        else:
+            directories.append(directory)
         for name in names:
             path = directory / name
             if path.relative_to(view) not in tree:
                 path.unlink()
                 removed += 1
-        if directory != view and not any(directory.iterdir()):
+    # Reversed walk order: a directory comes after its subdirectories.
+    for directory in reversed(directories):
+        if not any(directory.iterdir()):
             directory.rmdir()
     return linked, removed, failed
 
 
 def main():
-    database, storage, view = (Path(argument) for argument in sys.argv[1:])
-    tree = documents(database, storage)
-    linked, removed, failed = sync(view, tree)
+    database, storage, view, inbox = sys.argv[1:]
+    tree = documents(Path(database), Path(storage))
+    linked, removed, failed = sync(Path(view), tree, inbox)
     if linked or removed:
         summary = f"{len(tree)} documents: {linked} linked, {removed} removed"
         print(summary, flush=True)

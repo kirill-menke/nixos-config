@@ -2,12 +2,13 @@
 # Paperless-ngx: OCR, search and filing for every scanned document.
 #
 # Flow: the Brother ADS-1800W writes PDFs into the Samba share `scans`
-# (scans.nix), which is the consumption directory here. The consumer takes a
-# file once it has been unchanged for 5 s, OCRs it (German + English), files it
-# and deletes it from the share. A stack holding several documents is split at
-# PATCH-T separator sheets (a page carrying a "PATCHT" barcode); the separator
-# pages themselves are dropped. Scanner stacks go in face up, in reading order
-# (see reverseScanPages below).
+# (scans.nix), which is the consumption directory here; files copied into
+# /mnt/paperless/inbox on the PC land there too (paperless-view.nix). The
+# consumer takes a file once it has been unchanged for 5 s, OCRs it (German +
+# English), files it and deletes it from the share. A stack holding several
+# documents is split at PATCH-T separator sheets (a page carrying a "PATCHT"
+# barcode); the separator pages themselves are dropped. Scanner stacks go in
+# face up, in reading order (see reverseScanPages below).
 #
 # Where things live:
 #   /var/lib/paperless           SQLite database, search index, originals and
@@ -19,8 +20,8 @@
 # Access:
 #   http://nas.local:28981                LAN (firewall opens it on enp2s0 only)
 #   https://nas.<tailnet>.ts.net:10443    phone, via tailscale serve (below)
-#   /mnt/paperless on the PC              the documents as files, read-only
-#                                         (paperless-view.nix)
+#   /mnt/paperless on the PC              the documents as files, read-only,
+#                                         and inbox/ (paperless-view.nix)
 # Login: kirill / sops paperless/admin-password (secrets/nas.yaml).
 #
 { config, pkgs, ... }:
