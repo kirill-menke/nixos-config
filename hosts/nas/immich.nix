@@ -1,0 +1,194 @@
+#
+# Immich: photo and video library with a timeline, map, albums, faces and
+# search, for the iPhone app (which also backs the phone up) and the browser.
+#
+# Reached over the tailnet only: Immich listens on loopback and `tailscale
+# serve` publishes it as https://nas.<tailnet>.ts.net:2443, the server URL for
+# the app. The phone needs Tailscale connected to back up.
+#
+# The library is a read-only "external library" at /tank/data/photos: a copy of
+# the PC's ~/Documents/usb-backups/photos, which stays the master. Immich never
+# writes there; its nightly library scan picks up what is synced in later.
+# Sync from the PC (kirill is in the immich group, so group ownership can be
+# set without root):
+#
+#   rsync -rltp --chmod=D2750,F0640 --chown=:immich \
+#     ~/Documents/usb-backups/photos/ nas:/tank/data/photos/
+#
+# Phone uploads land in /tank/data/immich/upload. tank is still a single disk,
+# so those have no second copy on this box until the mirror exists.
+#
+# Memory: this box has 7.5 GiB and many residents. Immich, its Postgres and its
+# Redis share system-immich.slice, capped at 2 GiB of RAM and 512 MiB of swap,
+# so an overrun gets Immich OOM-killed and restarted (Restart=on-failure)
+# instead of squeezing everything else (2026-10-31: a memory burst stalled SSH
+# and AdGuard DNS for ~15 minutes). Measured on Immich 3.3.5 without machine
+# learning: ~1.1 GiB idle, ~1.6 GiB while processing.
+#
+# Machine learning (faces, smart search, OCR) does not run here at all: the PC
+# serves it (hosts/pc/immich-ml.nix). Its URL comes from sops (immich/ml-url),
+# since the tailnet address stays out of this public repo. While the PC is off
+# those jobs fail; immich-ml-catchup queues the missing ones hourly once the
+# PC answers again. It needs an admin API key with the job.create permission
+# in /var/lib/nixos-secrets/immich-api-key, as the header line
+# `x-api-key: <key>` (root, 0600); without that file it stays inactive.
+#
+# Videos transcode on the iGPU with Quick Sync, the driver stack media.nix sets
+# up for Jellyfin. renderD128 is world-accessible (0666), so PrivateUsers needs
+# no group mapping.
+#
+# Where things live:
+#   /var/lib/postgresql   the database: albums, faces, metadata (NVMe)
+#   /tank/data/immich     uploads, thumbnails, transcoded videos, and nightly
+#                         database dumps in backups/ (HDD)
+#   /tank/data/photos     the external library
+#
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
+let
+  port = 2283; # loopback
+  # Tailnet, via tailscale serve. Taken there: 443 = finance, 3000 = AdGuard,
+  # 6443 = Vaultwarden, 7443 = T3 Code, 8443 = ntfy, 9443 = vibereel-phone,
+  # 10443 = Paperless.
+  httpsPort = 2443;
+  mediaDir = "/tank/data/immich";
+  photosDir = "/tank/data/photos";
+  apiKeyFile = "/var/lib/nixos-secrets/immich-api-key";
+  serve = "${pkgs.tailscale}/bin/tailscale serve";
+
+  mlCatchup = pkgs.writeShellApplication {
+    name = "immich-ml-catchup";
+    runtimeInputs = [ pkgs.curl ];
+    text = ''
+      url=$(<"$CREDENTIALS_DIRECTORY/ml-url")
+      if ! curl -fsS --max-time 5 "$url/ping" >/dev/null; then
+        echo "Machine learning at the PC is not reachable; nothing queued."
+        exit 0
+      fi
+      # force=false: only assets the job never finished for. The key travels
+      # in a header file, never on the command line.
+      for queue in smartSearch faceDetection ocr; do
+        curl -fsS --max-time 15 -X PUT \
+          -H @"$CREDENTIALS_DIRECTORY/api-key" \
+          -H 'Content-Type: application/json' \
+          -d '{"command":"start","force":false}' \
+          "http://127.0.0.1:${toString port}/api/jobs/$queue" >/dev/null
+      done
+      echo "Queued missing smartSearch, faceDetection and ocr jobs."
+    '';
+  };
+in
+{
+  services.immich = {
+    enable = true;
+    host = "127.0.0.1";
+    inherit port;
+    mediaLocation = mediaDir;
+    machine-learning.enable = false;
+    accelerationDevices = [ "/dev/dri/renderD128" ];
+
+    # A config file makes these read-only in the web UI; change them here.
+    settings = {
+      ffmpeg = {
+        accel = "qsv";
+        accelDecode = true;
+      };
+      # Defaults are 3 thumbnails / 5 metadata / 5 library jobs at once; fewer
+      # keeps the N95 and the 2 GiB cap comfortable during the first import.
+      job = {
+        thumbnailGeneration.concurrency = 2;
+        metadataExtraction.concurrency = 2;
+        library.concurrency = 2;
+        videoConversion.concurrency = 1;
+      };
+      machineLearning.urls = [ { _secret = config.sops.secrets."immich/ml-url".path; } ];
+    };
+  };
+
+  sops.secrets."immich/ml-url" = {
+    sopsFile = ../../secrets/nas.yaml;
+    restartUnits = [ "immich-server.service" ];
+  };
+
+  users.users.kirill.extraGroups = [ "immich" ];
+
+  systemd.tmpfiles.settings.immich-dirs = {
+    # The module only fixes the mode of an existing media dir; it doesn't
+    # create one outside /var/lib.
+    ${mediaDir}.d = {
+      user = "immich";
+      group = "immich";
+      mode = "0700";
+    };
+    # setgid: files synced in inherit the immich group, which can read them.
+    ${photosDir}.d = {
+      user = "kirill";
+      group = "immich";
+      mode = "2750";
+    };
+  };
+
+  systemd.slices.system-immich.sliceConfig = {
+    MemoryHigh = "1792M";
+    MemoryMax = "2G";
+    MemorySwapMax = "512M";
+  };
+
+  systemd.services = {
+    # Never write uploads into the root fs's empty mountpoint when tank is
+    # missing.
+    immich-server.unitConfig.RequiresMountsFor = [
+      mediaDir
+      photosDir
+    ];
+
+    # Only Immich uses Postgres and this Redis on this box, so they count
+    # against Immich's cap.
+    postgresql.serviceConfig.Slice = "system-immich.slice";
+    redis-immich.serviceConfig.Slice = "system-immich.slice";
+
+    # Same pattern as vaultwarden.nix; `off` on stop clears only this port.
+    immich-tailscale-serve = {
+      description = "Publish Immich on port ${toString httpsPort} via tailscale serve";
+      after = [
+        "tailscaled.service"
+        "immich-server.service"
+      ];
+      wants = [ "tailscaled.service" ];
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = "${serve} --bg --https=${toString httpsPort} http://127.0.0.1:${toString port}";
+        ExecStop = "${serve} --https=${toString httpsPort} off";
+      };
+    };
+
+    immich-ml-catchup = {
+      description = "Queue Immich's missing machine-learning jobs once the PC answers";
+      after = [ "immich-server.service" ];
+      unitConfig.ConditionPathExists = apiKeyFile;
+      serviceConfig = {
+        Type = "oneshot";
+        DynamicUser = true;
+        LoadCredential = [
+          "ml-url:${config.sops.secrets."immich/ml-url".path}"
+          "api-key:${apiKeyFile}"
+        ];
+        ExecStart = lib.getExe mlCatchup;
+      };
+    };
+  };
+
+  systemd.timers.immich-ml-catchup = {
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnCalendar = "hourly";
+      RandomizedDelaySec = "5m";
+    };
+  };
+}

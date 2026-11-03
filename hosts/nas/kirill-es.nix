@@ -65,7 +65,8 @@ let
     # every dev deploy. Separate VMs also keep dev's unreviewed code away from
     # prod's DB and keys, and dev can be switched off with `enable = false`.
     kirill-es-dev = {
-      enable = true;
+      # Off since 2026-11-03: Kirill tests locally and deploys straight to prod.
+      enable = false;
       app = inputs.kirill-es-dev;
       origin = "https://dev.kirill.es";
       net = {
