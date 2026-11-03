@@ -19,6 +19,8 @@
 # Access:
 #   http://nas.local:28981                LAN (firewall opens it on enp2s0 only)
 #   https://nas.<tailnet>.ts.net:10443    phone, via tailscale serve (below)
+#   /mnt/paperless on the PC              the documents as files, read-only
+#                                         (paperless-view.nix)
 # Login: kirill / sops paperless/admin-password (secrets/nas.yaml).
 #
 { config, pkgs, ... }:
@@ -56,7 +58,10 @@ let
   };
 in
 {
-  imports = [ ./paperless-ai.nix ];
+  imports = [
+    ./paperless-ai.nix
+    ./paperless-view.nix
+  ];
 
   services.paperless = {
     enable = true;
