@@ -22,6 +22,11 @@ let
     # segno: the QR code the Network card's connected Wi-Fi row shows, so a
     # phone joins by scanning
     ps.segno
+    # icalendar, recurring-ical-events: the Calendar card's events, read
+    # from the calendars vdirsyncer mirrors, repeats and time zones
+    # worked out
+    ps.icalendar
+    ps.recurring-ical-events
   ]);
 
   # The bar's scripts, as the waybar-popups source and the bar's reload
