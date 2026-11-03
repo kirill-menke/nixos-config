@@ -40,6 +40,7 @@ in
 {
   imports = [
     ./hardware-configuration.nix # the nixos-generate-config scan
+    ./calendar.nix # the NAS's calendars, synced for the bar's calendar card
     ../../modules/nixos/desktop.nix # Hyprland, the bar's system side, hyprlock's PAM entry
     inputs.nvidia-pstated.nixosModules.default
     inputs.home-manager.nixosModules.home-manager
