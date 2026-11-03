@@ -31,6 +31,7 @@
     ./options.nix
     ./outlook.nix
     ./paperless.nix
+    ./radicale.nix
     ./reap-stalled.nix
     ./scans.nix
     ./secrets.nix
