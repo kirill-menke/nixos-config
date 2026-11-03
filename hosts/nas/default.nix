@@ -25,6 +25,8 @@
     ./claude-code.nix
     ./disko.nix
     ./finance.nix
+    ./gatus.nix
+    ./glance.nix
     ./kirill-es.nix
     ./reel-api.nix
     ./media.nix
