@@ -29,9 +29,11 @@
 # serves it (hosts/pc/immich-ml.nix). Its URL comes from sops (immich/ml-url),
 # since the tailnet address stays out of this public repo. While the PC is off
 # those jobs fail; immich-ml-catchup queues the missing ones hourly once the
-# PC answers again. It needs an admin API key with the job.create permission
-# in /var/lib/nixos-secrets/immich-api-key, as the header line
-# `x-api-key: <key>` (root, 0600); without that file it stays inactive.
+# PC answers again, but only for a queue that is idle (a busy one already holds
+# those assets, and queueing them again would duplicate the work). It needs an
+# admin API key with the job.read and job.create permissions in
+# /var/lib/nixos-secrets/immich-api-key, as the header line `x-api-key: <key>`
+# (root, 0600); without that file it stays inactive.
 #
 # Videos transcode on the iGPU with Quick Sync, the driver stack media.nix sets
 # up for Jellyfin. renderD128 is world-accessible (0666), so PrivateUsers needs
@@ -62,23 +64,33 @@ let
 
   mlCatchup = pkgs.writeShellApplication {
     name = "immich-ml-catchup";
-    runtimeInputs = [ pkgs.curl ];
+    runtimeInputs = [
+      pkgs.curl
+      pkgs.jq
+    ];
     text = ''
       url=$(<"$CREDENTIALS_DIRECTORY/ml-url")
       if ! curl -fsS --max-time 5 "$url/ping" >/dev/null; then
         echo "Machine learning at the PC is not reachable; nothing queued."
         exit 0
       fi
-      # force=false: only assets the job never finished for. The key travels
-      # in a header file, never on the command line.
+      # The key travels in a header file, never on the command line.
+      api=http://127.0.0.1:${toString port}/api
+      key=$CREDENTIALS_DIRECTORY/api-key
+      queues=$(curl -fsS --max-time 15 -H @"$key" "$api/jobs")
       for queue in smartSearch faceDetection ocr; do
-        curl -fsS --max-time 15 -X PUT \
-          -H @"$CREDENTIALS_DIRECTORY/api-key" \
+        pending=$(jq -r --arg q "$queue" '.[$q].jobCounts | .active + .waiting + .delayed' <<<"$queues")
+        if [ "$pending" -gt 0 ]; then
+          echo "$queue: $pending jobs still pending, left alone."
+          continue
+        fi
+        # force=false: only assets the job never finished for.
+        curl -fsS --max-time 15 -X PUT -H @"$key" \
           -H 'Content-Type: application/json' \
           -d '{"command":"start","force":false}' \
-          "http://127.0.0.1:${toString port}/api/jobs/$queue" >/dev/null
+          "$api/jobs/$queue" >/dev/null
+        echo "$queue: queued the missing assets."
       done
-      echo "Queued missing smartSearch, faceDetection and ocr jobs."
     '';
   };
 in
@@ -91,18 +103,25 @@ in
     machine-learning.enable = false;
     accelerationDevices = [ "/dev/dri/renderD128" ];
 
+    # Upstream's start.sh preloads mimalloc; nixpkgs runs node directly, on
+    # glibc malloc, whose per-thread arenas fragment under sharp/libvips. The
+    # first scan without it grew the worker to 1.25 GB RSS and the slice to its
+    # 1.75 GiB MemoryHigh, where throttling stalled the API (2026-11-03).
+    environment.LD_PRELOAD = "${pkgs.mimalloc}/lib/libmimalloc.so";
+
     # A config file makes these read-only in the web UI; change them here.
     settings = {
       ffmpeg = {
         accel = "qsv";
         accelDecode = true;
       };
-      # Defaults are 3 thumbnails / 5 metadata / 5 library jobs at once; fewer
-      # keeps the N95 and the 2 GiB cap comfortable during the first import.
+      # Defaults are 3 thumbnails / 5 metadata / 5 library jobs at once. One
+      # thumbnail at a time (libvips still uses every core per image) keeps
+      # big HEIC/DNG decode buffers inside the 2 GiB cap during the import.
       job = {
-        thumbnailGeneration.concurrency = 2;
+        thumbnailGeneration.concurrency = 1;
         metadataExtraction.concurrency = 2;
-        library.concurrency = 2;
+        library.concurrency = 1;
         videoConversion.concurrency = 1;
       };
       machineLearning.urls = [ { _secret = config.sops.secrets."immich/ml-url".path; } ];
