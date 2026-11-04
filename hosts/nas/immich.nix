@@ -157,7 +157,7 @@ in
   # swap the slice hit that cap during the import (shmem 530 MB), sat at
   # MemoryHigh with nothing reclaimable, and stalled for an hour: two iPhone
   # clips took 37 minutes, the API timed out, memory pressure ~33 %
-  # (2026-11-04 00:20). These limits ended it within a minute.
+  # (2026-11-04, about 00:40-01:20 CET). These limits ended it within a minute.
   systemd.slices.system-immich.sliceConfig = {
     MemoryHigh = "2G";
     MemoryMax = "2560M";
