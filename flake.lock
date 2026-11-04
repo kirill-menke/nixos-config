@@ -199,27 +199,6 @@
         "url": "file:///home/kirill/Documents/projects/kirill.es"
       }
     },
-    "kirill-es-dev": {
-      "inputs": {
-        "nixpkgs": [
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1791315820,
-        "narHash": "sha256-I4F/jTRaLuUBgcnimuthupMA3+8fg6YG0Px7fdI7AP4=",
-        "ref": "dev",
-        "rev": "e72fde1a1fb2c886dee970019b425850db914f81",
-        "revCount": 97,
-        "type": "git",
-        "url": "file:///home/kirill/Documents/projects/kirill.es"
-      },
-      "original": {
-        "ref": "dev",
-        "type": "git",
-        "url": "file:///home/kirill/Documents/projects/kirill.es"
-      }
-    },
     "llm-agents": {
       "inputs": {
         "bun2nix": "bun2nix",
@@ -353,7 +332,6 @@
         "home-manager": "home-manager",
         "kirifin": "kirifin",
         "kirill-es": "kirill-es",
-        "kirill-es-dev": "kirill-es-dev",
         "llm-agents": "llm-agents",
         "microvm": "microvm",
         "nixpkgs": "nixpkgs_2",

@@ -1,10 +1,11 @@
 #
-# kirill.es on the NAS: two cloud-hypervisor microVMs (prod + dev), each
-# running the site plus its own cloudflared. Publicly reachable through
-# Cloudflare Tunnel only; nothing on this host or the router is opened.
+# kirill.es on the NAS: one cloud-hypervisor microVM running the site plus
+# its own cloudflared. Publicly reachable through Cloudflare Tunnel only;
+# nothing on this host or the router is opened. Only the site's master branch
+# is deployed; there is no staging VM (Kirill tests locally).
 #
-# Guest config: kirill-es-guest.nix. Flake inputs: microvm, kirill-es,
-# kirill-es-dev (flake.nix).
+# Guest config: kirill-es-guest.nix. Flake inputs: microvm, kirill-es
+# (flake.nix).
 #
 # What this file owns, host side:
 #
@@ -58,27 +59,6 @@ let
       vcpu = 2;
       # The NAS has 7.5 GiB and runs Jellyfin + the *arr stack: keep guests small.
       mem = 512;
-    };
-
-    # Separate VM rather than a second service in the prod guest: a guest
-    # update means a guest reboot, so sharing one VM would bounce prod on
-    # every dev deploy. Separate VMs also keep dev's unreviewed code away from
-    # prod's DB and keys, and dev can be switched off with `enable = false`.
-    kirill-es-dev = {
-      # Off since 2026-11-03: Kirill tests locally and deploys straight to prod.
-      enable = false;
-      app = inputs.kirill-es-dev;
-      origin = "https://dev.kirill.es";
-      net = {
-        tap = "vm-kirill-dev";
-        mac = "02:4b:45:00:02:02";
-        hostAddr = "10.88.2.1";
-        guestAddr = "10.88.2.2";
-        prefixLength = 30;
-      };
-      vsockCid = 882;
-      vcpu = 1;
-      mem = 384;
     };
   };
 
@@ -216,8 +196,8 @@ in
   }) enabled;
 
   # VM state (volume images, API sockets, runner links) on ZFS rather than the
-  # ext4 root, so sanoid snapshots cover the guests' /var (access logs,
-  # journal). A snapshot of a running VM's image is crash-consistent.
+  # ext4 root, so sanoid snapshots cover the guests' /var (journal). A
+  # snapshot of a running VM's image is crash-consistent.
   #
   # One-time, before the first rebuild:   zfs create -o mountpoint=legacy tank/microvms
   #

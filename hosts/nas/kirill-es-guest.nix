@@ -7,7 +7,7 @@
 #
 # Inside the guest:
 #
-#   cloudflared  --(http://127.0.0.1:3000)-->  kirill-es (node, prerendered pages + access log)
+#   cloudflared  --(http://127.0.0.1:3000)-->  kirill-es (node, prerendered pages)
 #        |
 #        +-- outbound QUIC/HTTP2 :7844 to CF edge
 #
@@ -18,7 +18,7 @@
 #
 #   /nix/store          erofs image of exactly this guest's closure (read-only, built by the host)
 #   /                   tmpfs, gone on every restart
-#   /var                ext4 volume var.img, persistent: DB, access log, journal
+#   /var                ext4 volume var.img, persistent: the journal
 #   /run/host-secrets   tiny read-only ext4 image the host renders from sops at each VM start
 #
 {
@@ -73,7 +73,7 @@
         # Created sparse + mkfs'd by microvm@<name> on first start.
         image = "var.img";
         mountPoint = "/var";
-        size = 4096; # MiB, sparse; DB is ~26 MB today
+        size = 4096; # MiB, sparse; holds only the capped journal
         label = "var";
       }
       {
@@ -146,11 +146,7 @@
     host = "127.0.0.1"; # only cloudflared, in this same guest, connects
     port = 3000;
     inherit origin;
-    # Every request arrives through the tunnel and the app port is loopback-
-    # only, so this header is always the one Cloudflare set.
-    addressHeader = "CF-Connecting-IP";
   };
-  systemd.services.kirill-es.unitConfig.RequiresMountsFor = [ "/var/lib" ];
 
   #############################################################################
   # Cloudflare Tunnel (remotely managed: ingress lives in the CF dashboard)
@@ -252,18 +248,6 @@
     ForwardToConsole = true;
     MaxLevelConsole = "info";
   };
-
-  # The app appends to <cwd>/logs/access.log forever. It reopens the file on
-  # every request (writeFileSync flag 'a'), so plain rename rotation works.
-  services.logrotate.settings.kirill-es-access = {
-    files = [ "/var/lib/private/kirill-es/logs/access.log" ];
-    frequency = "weekly";
-    rotate = 8;
-    compress = true;
-    missingok = true;
-    notifempty = true;
-  };
-
 
   # No sshd, no passwords, no login. Debug from the host via
   # `journalctl -u microvm@${name}`. For a shell, temporarily set
