@@ -15,6 +15,11 @@ Upstream's HTTP mode can't do this job: it expects every request to carry the
 caller's own Microsoft token, while this server signs in from the local token
 cache. When the server exits, its requests in flight fail with an error and
 it is restarted and initialised again; clients stay connected.
+
+Every answer reaches its client with login codes and one-time-link tokens
+masked (mask.py), unless the request was a tools/call whose params carry
+`_meta: {"vault-fill/reveal": true}` (mail.py's code reader). That key is
+removed before the server sees the request.
 """
 
 import asyncio
@@ -23,6 +28,8 @@ import itertools
 import json
 import os
 import sys
+
+import mask
 
 SOCKET, GROUP, *SERVER = sys.argv[1:]
 
@@ -54,9 +61,10 @@ class Server:
     def __init__(self):
         self.proc = None
         self.ids = itertools.count(1)
-        self.pending = {}  # upstream id -> (client, client's id) or a Future
+        self.pending = {}  # upstream id -> (client, client's id, masked) or a Future
         self.init_result = None
         self.ready = asyncio.Event()
+        self.masking = set()  # tasks masking an answer
 
     async def run(self):
         delay = 1
@@ -129,8 +137,14 @@ class Server:
                     if not target.done():
                         target.set_result(message)
                 elif target is not None:
-                    client, cid = target
-                    client.send({**message, "id": cid})
+                    client, cid, masked = target
+                    reply = {**message, "id": cid}
+                    if masked:
+                        task = asyncio.create_task(self.send_masked(client, reply))
+                        self.masking.add(task)
+                        task.add_done_callback(self.masking.discard)
+                    else:
+                        client.send(reply)
             elif "id" in message:
                 await self.write(
                     {
@@ -140,6 +154,16 @@ class Server:
                     }
                 )
 
+    async def send_masked(self, client, reply):
+        """Mask an answer in a worker thread (a big mail takes a few hundred ms),
+        so other clients' messages keep flowing meanwhile."""
+        try:
+            reply = await asyncio.to_thread(mask.mask_reply, reply)
+        except Exception as error:  # noqa: BLE001 - never pass an unmasked answer on
+            log(f"masking failed: {error!r}")
+            reply = error_reply(reply["id"], "outlook-mcp-mux: masking the answer failed")
+        client.send(reply)
+
     async def write(self, message):
         if not self.proc or self.proc.returncode is not None:
             raise ConnectionError("the Outlook MCP server is not running")
@@ -148,8 +172,10 @@ class Server:
 
     async def forward(self, client, message):
         await self.ready.wait()
+        message, reveal = mask.take_reveal(message)
         uid = next(self.ids)
-        self.pending[uid] = (client, message["id"])
+        masked = not reveal and message["method"] not in mask.UNMASKED_METHODS
+        self.pending[uid] = (client, message["id"], masked)
         try:
             await self.write({**message, "id": uid})
         except (ConnectionError, OSError) as error:
@@ -159,7 +185,7 @@ class Server:
     async def cancel(self, client, message):
         params = message.get("params") or {}
         for uid, target in list(self.pending.items()):
-            if target == (client, params.get("requestId")):
+            if isinstance(target, tuple) and target[:2] == (client, params.get("requestId")):
                 self.pending.pop(uid)
                 await self.write({**message, "params": {**params, "requestId": uid}})
 
@@ -182,7 +208,7 @@ class Server:
                 if not target.done():
                     target.set_exception(ConnectionError(reason))
             else:
-                client, cid = target
+                client, cid, _ = target
                 client.send(error_reply(cid, reason))
 
 

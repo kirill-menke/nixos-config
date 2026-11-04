@@ -10,6 +10,9 @@ claude.ai ──HTTPS :443──▶ Tailscale Funnel ──▶ tailnet node "out
                                                   │  OAuth 2.1 gate, GitHub login
                                                   │  stdio
                                                   ▼
+                                           gate-filter.py (masks login codes)
+                                                  │  stdio
+                                                  ▼
                                            ms-365-mcp-server ──▶ Microsoft Graph (Mail.Read)
 ```
 
@@ -34,10 +37,21 @@ To allow writing, set `readOnly = false` and add the tool names to `tools`, then
 
 The stdio mode also always exposes the server's own account tools (`login`, `logout`, `verify-login`, `list-accounts`, `select-account`, `remove-account`), and they can't be filtered out. The account pin (`microsoftAccount`) stops them from switching to a different account. The worst they can do is sign the NAS out, and you fix that by running `sudo outlook-mcp-login` again.
 
+## Login codes are masked
+
+Every answer, through the gate and through the shared server, comes with login codes and mailed passwords as `••••••` and the tokens of one-time links (the values of `token`, `code`, `otp`, `key`, `signature`, `sig`, `magic`, `verify` and long `t` query parameters; on a path with a `link…`, `l`, `confirm…`, `verif…` or `activat…` segment also long `id`/`lid`/`uid` values and opaque 32+-character path segments after it, after an `Aktivierung`/`aktivieren`/`bestaetigen`/`Bestätigung`/`freischalten`/`verifizieren`/`optin` segment from 20 characters) as `•••`: in subjects, previews, bodies and any other string at any depth, also inside the JSON that text content blocks carry. Voucher and gift-card codes keep only their last 4 characters (`••••2026`). Ids, `@odata.*` links (the next page's skiptoken) and attachment bytes (`contentBytes`, `blob`) stay as they are, so paging and downloads work. Answers that hold no mail (`initialize`, `tools/list` and the other list methods) are left alone. A code is what the omp mail tool's code reader would take (4–8 digits near a word like Code/PIN/TAN/Passwort, 4–12 mixed letters and digits, 4–8 capital letters or 4–10 capitals and digits set off near such a word, like Booking.com's `ABCDE9 is your verification code`, or 3+ hyphen-joined lower-case words near it, like Notion's), with every other appearance of it in the same mail. A password is the value (6+ characters without spaces) after `Passwort`/`Kennwort`/`password`/`Zugangsdaten`/`PIN` and `:`, `lautet` or `is`.
+
+The rules live in `mask.py`, a verbatim copy of the masker in the omp mail tool (`../../pc/mail.py`), which runs on another machine and can't import it. After changing either, `python3 mask.py --check-sync ../../pc/mail.py` must print `in sync`.
+
+Only the shared server (`mux.py`) can answer unmasked, and only to a `tools/call` request whose params carry `"_meta": {"vault-fill/reveal": true}`: the mail tool's `fill_mail_code` sends that, which types the code into a page without printing it. The key is removed before the server sees the request. The gate (`gate-filter.py`, between mcp-auth-proxy and its server) ignores it and always masks. If masking an answer fails, the client gets an error instead of the unmasked answer.
+
 ## Layout
 
 ```
 default.nix                                  NixOS module (services.outlook-mcp)
+mask.py                                      masks login codes and one-time-link tokens (mirrors mail.py)
+mux.py                                       the shared server for local clients (shared.enable)
+gate-filter.py                               masks the gate's server's answers
 pkgs/ms-365-mcp-server/package.nix           built from the published npm tarball (ships prebuilt dist/)
 pkgs/ms-365-mcp-server/package.json          published manifest without dev/optional deps
 pkgs/ms-365-mcp-server/package-lock.json

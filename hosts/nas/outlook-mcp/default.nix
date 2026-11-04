@@ -6,6 +6,9 @@
 #                           mcp-auth-proxy (OAuth 2.1, GitHub login)
 #                                 │ stdio
 #                                 ▼
+#                           gate-filter.py (masks login codes, mask.py)
+#                                 │ stdio
+#                                 ▼
 #                           ms-365-mcp-server ──▶ Microsoft Graph
 #
 # Microsoft tokens never leave this machine: claude.ai only ever holds a token
@@ -67,6 +70,16 @@ let
 
   serverCommand = [ (lib.getExe cfg.package) ] ++ serverArgs;
 
+  # mux.py and gate-filter.py, next to the mask.py they import.
+  scripts = lib.fileset.toSource {
+    root = ./.;
+    fileset = lib.fileset.unions [
+      ./mask.py
+      ./mux.py
+      ./gate-filter.py
+    ];
+  };
+
   proxyCommand = [
     (lib.getExe cfg.proxyPackage)
     "--listen"
@@ -93,6 +106,11 @@ let
     "GITHUB_CLIENT_SECRET"
     "-u"
     "ALLOWED_REDIRECT_URIS"
+  ]
+  # Login codes and one-time-link tokens masked in every answer (mask.py).
+  ++ [
+    (lib.getExe pkgs.python3)
+    "${scripts}/gate-filter.py"
   ]
   ++ serverCommand;
 
@@ -479,7 +497,7 @@ in
         ExecStart = utils.escapeSystemdExecArgs (
           [
             (lib.getExe pkgs.python3)
-            "${./mux.py}"
+            "${scripts}/mux.py"
             muxSocket
             clientGroup
           ]
