@@ -15,14 +15,9 @@
     # builds against llm-agents' own nixpkgs (`llm-agents/nixpkgs` in the lock).
     llm-agents.url = "github:numtide/llm-agents.nix";
 
-    # The laptop's Firefox add-ons (hosts/laptop/home-shared.nix).
+    # Firefox add-ons of both desktops (modules/home/workstation.nix).
     firefox-addons = {
       url = "gitlab:rycee/nur-expressions?dir=pkgs/firefox-addons";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
-    nvidia-pstated = {
-      url = "github:sasha0552/nvidia-pstated";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
