@@ -104,7 +104,6 @@
             "class<imv>": "󰋩", // md-image
             "class<org\\.pulseaudio\\.pavucontrol>": "󰙪", // md-tune_vertical
             "class<(org\\.qbittorrent\\.qbittorrent|qbittorrent)>": "󰍇", // md-magnet
-            "class<com\\.usebottles\\.bottles>": "󰡔", // md-bottle_wine
             // md-folder_open: a file chooser (the GTK portal's), not Nautilus
             "class<xdg-desktop-portal-gtk>": "󰝰"
         },
@@ -241,9 +240,10 @@
         "smooth-scrolling-threshold": 1,
         "reverse-scrolling": true
     },
-    // Left click: the power card (bar-popup.py): lock, suspend, log out,
-    // restart, shut down. SUPER+Escape and the power key open the same card
-    // (hyprland.lua); holding the power key 5 s still forces power-off.
+    // Left click: the power card (bar-popup.py): lock, suspend, hibernate,
+    // log out, restart, shut down. SUPER+Escape and the power key open the
+    // same card (hyprland.lua); holding the power key 5 s still forces
+    // power-off.
     "custom/power": {
         "format": "⏻",
         "on-click": "bar-popup power",
@@ -405,7 +405,8 @@
     // (connectivity.py): "Sign in" while a captive portal holds the
     // connection back (a click opens the sign-in page; NetworkManager then
     // checks again every 10 s for up to 2 min), a glyph while the network
-    // answers but the internet doesn't, a lock while a VPN is up (a click
+    // answers but the internet doesn't, a lock while the internet traffic
+    // goes through a VPN (not Tailscale without an exit node; a click
     // opens the Network card); hidden otherwise. NetworkManager's
     // dispatcher sends the signal on each change (modules/nixos/desktop.nix), so
     // nothing polls. Signals taken: 8 display, 9 this one.

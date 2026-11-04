@@ -6,8 +6,8 @@ right after the network module.
   connectivity status   the module: "Sign in" while a captive portal
                         (hotel, train, café) holds the connection back, a
                         glyph while the network answers but the internet
-                        doesn't, a lock while a VPN is up; nothing (hidden)
-                        otherwise
+                        doesn't, a lock while the internet traffic goes
+                        through a VPN; nothing (hidden) otherwise
   connectivity open     its click: the sign-in page behind a portal (the
                         Network card's Open runs this too), else the
                         Network card
@@ -18,6 +18,7 @@ each change of that verdict and as a link or a VPN comes or goes, so
 `status` runs only then and nothing polls.
 """
 
+import functools
 import json
 import subprocess
 import sys
@@ -38,6 +39,11 @@ TIMEOUT_MS = 2000
 # this many times at most, so "Sign in" goes as soon as the portal lets go
 # rather than at the next 5-minute check.
 RECHECK_S, RECHECK_N = 10, 12
+# A public address of each family. The route the kernel picks for it
+# (`ip route get`, which follows the policy rules, so Tailscale's table 52
+# and wg-quick's table count too) names the interface the internet traffic
+# leaves by. Nothing is sent.
+PROBES = (("-4", "1.1.1.1"), ("-6", "2606:4700:4700::1111"))
 
 # The portal's is text alone: right after the network module, "Sign in"
 # says enough.
@@ -91,22 +97,51 @@ def network_name(mgr):
                   f"{NM}.Connection.Active").get("Id") or "This network")
 
 
+@functools.cache
+def internet_ifaces():
+    """The interfaces the internet traffic leaves by, IPv4 and IPv6 (one
+    `ip route get` each); none for a family without a route, or when `ip`
+    can't say."""
+    found = set()
+    for family, address in PROBES:
+        try:
+            out = subprocess.run(["ip", "-j", family, "route", "get", address],
+                                 capture_output=True, text=True,
+                                 timeout=TIMEOUT_MS / 1000).stdout
+            found.update(route.get("dev") for route in json.loads(out or "[]"))
+        except (OSError, subprocess.SubprocessError, ValueError):
+            pass
+    found.discard(None)
+    return frozenset(found)
+
+
 def is_vpn(active):
-    """A VPN plugin's connection (OpenVPN, OpenConnect, ...), a WireGuard
-    one, or a tun device's, which is a VPN run outside NetworkManager; a
-    tap device is a virtual machine's network card, no VPN."""
-    if active.get("Vpn") or active.get("Type") == "wireguard":
-        return True
-    if active.get("Type") != "tun":
+    """A VPN the internet traffic goes through, which is what the lock
+    stands for: a VPN plugin's connection (OpenVPN, OpenConnect, ...)
+    while it holds the default route, or a WireGuard or tun device (a VPN
+    run outside NetworkManager) that the route to the internet leaves by.
+    So Tailscale counts only with an exit node: without one its tun device
+    carries the tailnet's own addresses and nothing else. Switching an exit
+    node on or off is no NetworkManager event, so the lock follows at the
+    next one. A tap device is a virtual machine's network card, no VPN."""
+    if active.get("Vpn"):
+        return bool(active.get("Default") or active.get("Default6"))
+    kind = active.get("Type")
+    if kind not in ("wireguard", "tun"):
         return False
     device = (active.get("Devices") or ["/"])[0]
-    return props(device, f"{NM}.Device.Tun").get("Mode") == "tun"
+    if (kind == "tun"
+            and props(device, f"{NM}.Device.Tun").get("Mode") != "tun"):
+        return False
+    iface = props(device, f"{NM}.Device").get("IpInterface")
+    return iface in internet_ifaces()
 
 
 def vpns(mgr):
-    """The names of the VPNs that are up. The network module shows none of
-    them: it ignores a VPN routed through a table of its own (WireGuard's
-    default route), and takes a tun VPN in the main table for Ethernet."""
+    """The names of the VPNs the internet traffic goes through (is_vpn).
+    The network module shows none of them: it ignores a VPN routed through
+    a table of its own (WireGuard's default route), and takes a tun VPN in
+    the main table for Ethernet."""
     names = []
     for path in mgr.get("ActiveConnections", []):
         active = props(path, f"{NM}.Connection.Active")

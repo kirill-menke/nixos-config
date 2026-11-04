@@ -455,11 +455,12 @@ tooltip label {
    the network's lavender; behind a captive portal "Sign in" in yellow, as
    the Network card's banner; the internet out of reach, a glyph in @warn.
    The most urgent class sets the colour, so a lock beside "Sign in" or
-   the glyph takes theirs. Its box reaches back over the network module's
-   right padding, so the text follows the network's one space after it,
-   while its hover pill still has room on both sides. */
+   the glyph takes theirs. It keeps its own padding, as every member does:
+   pulled back over the network module's right padding (margin-left:
+   -11px), its hover pill reached past its own box, which GTK doesn't
+   repaint, and stayed half drawn over the network module once the pointer
+   left. */
 #custom-connectivity {
-  margin-left: -11px;
   color: @lavender;
 }
 

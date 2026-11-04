@@ -1,7 +1,7 @@
-"""The Power card, `bar-popup power`: lock, suspend, log out, restart and
-shut down. The bar's power module opens it, and so do SUPER+Escape and
-the power key (hyprland.lua, with --key); it sits at the bar's right end
-either way.
+"""The Power card, `bar-popup power`: lock, suspend, hibernate, log out,
+restart and shut down. The bar's power module opens it, and so do
+SUPER+Escape and the power key (hyprland.lua, with --key); it sits at
+the bar's right end either way.
 
 Log out, Restart and Shut down end the session, so they arm on the first
 click (the row turns red and says so) and act on a second one within
@@ -61,6 +61,7 @@ from cardkit import (Arm, Panel, button, label, read_text,  # noqa: E402
 ICON = {
     "lock": "\U000f033e",
     "suspend": "\U000f0904",
+    "hibernate": "\U000f0717",  # md-snowflake
     "logout": "\U000f0343",
     "restart": "\U000f0709",
     "poweroff": "\U000f0425",
@@ -108,9 +109,9 @@ CSS = b"""
 # for a row that ends the session, whether the command is only launched,
 # and the row's tooltip while nothing holds it off. hyprlock runs until
 # the session is unlocked and hyprshutdown until the session ends;
-# systemctl suspend answers at once, and the card waits for that to say
-# why if logind refuses (polkit wanting a password with no agent to ask
-# for it).
+# systemctl suspend and hibernate answer at once, and the card waits for
+# that to say why if logind refuses (polkit wanting a password with no
+# agent to ask for it, too little swap for the hibernation image).
 Action = namedtuple("Action", "glyph name sub cmd key held verb launch tip",
                     defaults=(None, False, None))
 
@@ -127,6 +128,13 @@ ACTIONS = (
     # hypridle's before_sleep_cmd locks the session on the way down.
     Action(ICON["suspend"], "Suspend", "Locks first",
            ("systemctl", "suspend"), "S", "sleep"),
+    # Suspend's twin: the same "sleep" lock holds it off, and hypridle
+    # locks the session on the way down here too. The memory goes to the
+    # swap and the machine powers off, drawing nothing; the power button
+    # brings the session back, so it ends nothing and acts on the first
+    # click, as Suspend does.
+    Action(ICON["hibernate"], "Hibernate", "Saves to disk, powers off",
+           ("systemctl", "hibernate"), "H", "sleep"),
     Action(ICON["logout"], "Log out", None,
            SCOPE + ("hyprshutdown", "-t", "Logging out…"),
            "O", None, "log out", True),
@@ -139,7 +147,7 @@ ACTIONS = (
                     "-p", "systemctl poweroff"),
            "D", "shutdown", "shut down", True),
 )
-RESTART = 3
+RESTART = 4
 
 # The chevron's first restart; the second, into a generation, is built
 # from the boot menu (into_generation). hyprshutdown runs -p through
@@ -632,7 +640,8 @@ class PowerPanel(Panel):
             return
         self.arm.disarm()
         error = err.strip() or out.strip() or "Failed"
-        # systemctl says "Call to SuspendWithFlags failed: <reason>".
+        # systemctl says "Call to SuspendWithFlags failed: <reason>", or
+        # HibernateWithFlags.
         self._set_sub(i, error.splitlines()[0].rsplit(": ", 1)[-1], "bad",
                       error)
 

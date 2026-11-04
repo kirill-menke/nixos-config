@@ -37,6 +37,8 @@ hl.on("hyprland.start", function()
     -- The mic-mute key's LED comes up dark, while WirePlumber may bring the
     -- microphone back muted: osd waits for it (up to 30 s), then sets it.
     hl.exec_cmd("osd mic led")
+    -- The SUPER+N notes modal, started parked so that it opens at once.
+    hl.exec_cmd("~/.config/hypr/scripts/notes.sh --hidden")
 end)
 
 -- Both holds below send swaync-client commands. When Hyprland starts it
@@ -132,8 +134,11 @@ end
 -------------------------------
 
 -- See https://wiki.hypr.land/Configuring/Core/Environment-variables/
--- (The cursor theme's variables are in each host's part.)
 hl.env("ELECTRON_OZONE_PLATFORM_HINT", "auto")
+-- XCursor theme of home.pointerCursor (modules/home/workstation.nix), for
+-- clients that draw their own cursor: GTK3 apps such as waybar.
+hl.env("XCURSOR_THEME", "catppuccin-mocha-dark-cursors")
+hl.env("XCURSOR_SIZE", "24")
 
 
 -----------------------
@@ -493,13 +498,16 @@ hl.window_rule({
     size         = { 1100, 620 },
 })
 
--- Quick notes modal (SUPER+N), styled like the dictionary modal
+-- Quick notes modal (SUPER+N), styled like the dictionary modal. Its window
+-- starts parked on a hidden workspace; the app brings it out itself
+-- (hypr/scripts/notes.sh).
 hl.window_rule({
     match        = { class = "^(notes-modal)$" },
     border_color = "rgb(cba6f7)",
     float        = true,
     center       = true,
     size         = { 1100, 620 },
+    workspace    = "special:notes silent",
 })
 
 -- The attention module's details (its right click, and the Attention

@@ -1,6 +1,6 @@
 # Papirus-Dark with the tray icons of Discord, Steam and qBittorrent in the
 # bar's text colour, Catppuccin Mocha @text (#cdd6f4), where Papirus draws
-# them in its grey (#dfdfdf). The GTK icon theme (hosts/laptop/home-shared.nix,
+# them in its grey (#dfdfdf). The GTK icon theme (modules/home/workstation.nix,
 # gtk.iconTheme) is this one, and waybar's tray looks the apps' icon names
 # up in it. Everything else comes from Papirus-Dark, so the apps' own icons
 # (launchers, menus, windows) stay as they were: only tray-only names live

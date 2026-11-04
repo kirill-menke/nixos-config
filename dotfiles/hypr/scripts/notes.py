@@ -9,11 +9,24 @@ in a plain Markdown file, so they can be read and edited anywhere:
 
     - look up how ZFS special vdevs work
       - and whether they need a mirror
+
+Text typed but not saved yet is kept as a draft and comes back the next time
+the app starts.
+
+With --resident (as notes.sh starts it) the app keeps running between uses,
+as a fresh kitty + Textual start takes ~0.7 s: Hyprland's window rule parks
+the window on the hidden workspace "special:notes", Esc moves it back there,
+and SIGUSR1 (SUPER+N) brings it to the current workspace. It shows itself
+once it has drawn its first frame, so no blank terminal is ever seen, unless
+--hidden (the login prewarm) keeps it parked.
 """
 
+import asyncio
 import os
 import re
+import signal
 import subprocess
+import sys
 import textwrap
 from datetime import date
 from pathlib import Path
@@ -28,9 +41,29 @@ from textual.theme import Theme
 from textual.widgets import Footer, OptionList, TextArea
 from textual.widgets.option_list import Option
 
+# SIGUSR1 would kill the app until on_mount installs the real handler, so a
+# SUPER+N pressed while it is still starting is only noted.
+early_show = []
+signal.signal(signal.SIGUSR1, lambda *_: early_show.append(True))
+
 NOTES = Path(
     os.environ.get("NOTES_FILE", Path.home() / "Documents" / "notes.md")
 )
+DRAFT = Path(
+    os.environ.get("NOTES_DRAFT")
+    or Path(os.environ.get("XDG_STATE_HOME")
+            or Path.home() / ".local" / "state") / "notes-modal" / "draft.txt"
+)
+
+WINDOW = 'window = "class:^(notes-modal)$"'
+SHOW = (
+    "hl.dispatch(hl.dsp.window.move({ workspace ="
+    f" hl.get_active_workspace().id, {WINDOW}, follow = true }})) "
+    f"hl.dispatch(hl.dsp.window.center({{ {WINDOW} }})) "
+    f"hl.dispatch(hl.dsp.focus({{ {WINDOW} }}))"
+)
+HIDE = ("hl.dispatch(hl.dsp.window.move({ workspace = \"special:notes\","
+        f" {WINDOW}, follow = false }}))")
 
 DAY = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})\s*$")
 BULLET = re.compile(r"^(\s*)[-*+•]\s+(.*)$")
@@ -87,16 +120,41 @@ def mtime():
         return None
 
 
-def save(lines):
-    """Write atomically, so closing the window mid-save never truncates the
-    file. Resolved first, so a symlinked notes file stays a symlink."""
-    while lines and not lines[-1].strip():
-        lines = lines[:-1]
-    path = NOTES.resolve()
+def write_atomic(path, text):
+    """Write via a temporary file, so closing the window mid-save never
+    truncates `path`."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text("".join(f"{line}\n" for line in lines))
+    tmp.write_text(text)
     os.replace(tmp, path)
+
+
+def save(lines):
+    """Resolved first, so a symlinked notes file stays a symlink."""
+    while lines and not lines[-1].strip():
+        lines = lines[:-1]
+    write_atomic(NOTES.resolve(), "".join(f"{line}\n" for line in lines))
+
+
+def load_draft():
+    try:
+        return DRAFT.read_text()
+    except FileNotFoundError:
+        return ""
+
+
+def save_draft(text):
+    """Called on every edit, not at exit: SUPER+Q ends kitty with a SIGHUP
+    that leaves the app no time to save."""
+    if text.strip():
+        write_atomic(DRAFT, text)
+    else:
+        DRAFT.unlink(missing_ok=True)
+
+
+def hyprland(lua):
+    subprocess.run(["hyprctl", "eval", lua], stdout=subprocess.DEVNULL,
+                   stderr=subprocess.DEVNULL)
 
 
 def append(lines, entry):
@@ -250,11 +308,12 @@ class Notes(App):
     Footer { padding: 0 1; }
     """
     BINDINGS = [
-        Binding("escape", "quit", "Close", key_display="esc"),
+        Binding("escape", "close", "Close", key_display="esc"),
     ]
 
-    def __init__(self):
+    def __init__(self, resident=False, hidden=False):
         super().__init__()
+        self.resident, self.hidden = resident, hidden
         self.lines = load()
         self.mtime = mtime()
         self.history = []
@@ -270,13 +329,44 @@ class Notes(App):
         self.register_theme(MOCHA)
         self.theme = MOCHA.name
         self.query_one(NoteList).border_title = "Notes"
-        self.query_one(Entry).border_title = "New note"
+        entry = self.query_one(Entry)
+        entry.border_title = "New note"
+        entry.load_text(load_draft())
+        entry.move_cursor(entry.document.end)
         self.show(None)
+        entry.focus()
+        if self.resident:
+            signal.signal(signal.SIGUSR1, signal.SIG_DFL)
+            asyncio.get_running_loop().add_signal_handler(
+                signal.SIGUSR1, self.reveal)
+            if early_show or not self.hidden:
+                self.call_after_refresh(hyprland, SHOW)
+
+    def reveal(self):
+        """SUPER+N: catch up on edits made elsewhere (and on a new day for
+        the Today/Yesterday labels) since the window was parked, then bring
+        it to the current workspace."""
+        if mtime() != self.mtime:
+            self.lines, self.mtime, self.history = load(), mtime(), []
+            self.show(None)
+        elif self.shown_on != date.today():
+            self.show(None)
         self.query_one(Entry).focus()
+        hyprland(SHOW)
+
+    def action_close(self):
+        if self.resident:
+            hyprland(HIDE)
+        else:
+            self.exit()
+
+    def on_text_area_changed(self, event):
+        save_draft(event.text_area.text)
 
     def show(self, highlight):
         """Rebuild the list; highlight option `highlight`, or the newest
         note when it is None."""
+        self.shown_on = date.today()
         notes = self.query_one(NoteList)
         notes.clear_options()
         opts = options(self.lines)
@@ -344,4 +434,5 @@ class Notes(App):
 
 
 if __name__ == "__main__":
-    Notes().run()
+    Notes(resident="--resident" in sys.argv[1:],
+          hidden="--hidden" in sys.argv[1:]).run()
