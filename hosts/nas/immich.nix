@@ -19,11 +19,12 @@
 # so those have no second copy on this box until the mirror exists.
 #
 # Memory: this box has 7.5 GiB and many residents. Immich, its Postgres and its
-# Redis share system-immich.slice, capped at 2 GiB of RAM and 512 MiB of swap,
-# so an overrun gets Immich OOM-killed and restarted (Restart=on-failure)
-# instead of squeezing everything else (2026-10-31: a memory burst stalled SSH
-# and AdGuard DNS for ~15 minutes). Measured on Immich 3.3.5 without machine
-# learning: ~1.1 GiB idle, ~1.6 GiB while processing.
+# Redis share system-immich.slice, capped at 2.5 GiB of RAM (throttled from
+# 2 GiB) and 1.5 GiB of swap, so an overrun gets Immich OOM-killed and
+# restarted (Restart=on-failure) instead of squeezing everything else
+# (2026-10-31: a memory burst stalled SSH and AdGuard DNS for ~15 minutes).
+# Measured on Immich 3.3.5 without machine learning: ~1.1 GiB idle, ~1.6 GiB
+# while processing.
 #
 # Machine learning (faces, smart search, OCR) does not run here at all: the PC
 # serves it (hosts/pc/immich-ml.nix). Its URL comes from sops (immich/ml-url),
@@ -151,10 +152,16 @@ in
     };
   };
 
+  # Swap room matters as much as RAM: Quick Sync keeps its video frames in GPU
+  # buffers that count as shmem, which only swapping can evict. With 512 MiB of
+  # swap the slice hit that cap during the import (shmem 530 MB), sat at
+  # MemoryHigh with nothing reclaimable, and stalled for an hour: two iPhone
+  # clips took 37 minutes, the API timed out, memory pressure ~33 %
+  # (2026-11-04 00:20). These limits ended it within a minute.
   systemd.slices.system-immich.sliceConfig = {
-    MemoryHigh = "1792M";
-    MemoryMax = "2G";
-    MemorySwapMax = "512M";
+    MemoryHigh = "2G";
+    MemoryMax = "2560M";
+    MemorySwapMax = "1536M";
   };
 
   systemd.services = {
