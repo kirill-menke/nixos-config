@@ -157,9 +157,12 @@ let
         client = tailnetDns;
         conditions = ok;
       };
-      # Through the bridge below, i.e. the path every alert takes.
+      # Through the bridge below, i.e. the path every alert takes. ntfy runs
+      # behind-proxy and logs "unable to parse IP (@)" for every unix-socket
+      # request without X-Forwarded-For: once a minute, without the header.
       ntfy = {
         url = local "${toString ntfyPort}/v1/health";
+        headers.X-Forwarded-For = "127.0.0.1";
         conditions = ok ++ [ "[BODY].healthy == true" ];
       };
       "T3 Code" = {
