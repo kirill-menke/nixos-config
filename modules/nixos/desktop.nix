@@ -19,8 +19,8 @@
   # Login screen: SDDM with the Catppuccin Mocha theme. The theme is Qt 6 QML,
   # hence SDDM's Qt 6 build. Each host picks the greeter's display server
   # (services.displayManager.sddm.wayland.enable). The theme's font comes from
-  # the hosts' fonts.packages (nerd-fonts.jetbrains-mono). The greeter finds
-  # cursor themes in the system profile only (XCURSOR_PATH from
+  # fonts.packages in ./workstation.nix (nerd-fonts.jetbrains-mono). The
+  # greeter finds cursor themes in the system profile only (XCURSOR_PATH from
   # /etc/pam/environment, as the sddm user), hence Adwaita installed here.
   services.displayManager.sddm = {
     enable = true;

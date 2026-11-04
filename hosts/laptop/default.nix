@@ -1,9 +1,8 @@
-# Laptop -- Dell notebook, Hyprland on the shared desktop
-# (modules/nixos/desktop.nix, modules/home/desktop.nix), three users.
+# Laptop -- Dell notebook, three users. What it shares with the PC, Hyprland
+# included, is modules/nixos/workstation.nix.
 {
   config,
   pkgs,
-  inputs,
   ...
 }:
 
@@ -11,60 +10,25 @@
   imports = [
     # Include the results of the hardware scan.
     ./hardware-configuration.nix
-    ../../modules/nixos/desktop.nix
-    inputs.home-manager.nixosModules.home-manager
+    ../../modules/nixos/workstation.nix
   ];
 
-  home-manager = {
-    useGlobalPkgs = true;
-    useUserPackages = true;
-    backupFileExtension = "backup";
-    extraSpecialArgs = { inherit inputs; };
-    users.kirill = import ./home-kirill.nix;
-    users.lena = import ./home-lena.nix;
-    users.christoph = import ./home-christoph.nix;
+  home-manager.users = {
+    kirill = import ./home-kirill.nix;
+    lena = import ./home-lena.nix;
+    christoph = import ./home-christoph.nix;
   };
 
-  nix.settings.experimental-features = [
-    "nix-command"
-    "flakes"
-  ];
+  # Weekly garbage collection (modules/nixos/workstation.nix) keeps the last
+  # 30 days of generations.
+  nix.gc.options = "--delete-older-than 30d";
 
-  # Binary cache for numtide/llm-agents.nix (provides the omp / oh-my-pi package),
-  # so those agents download prebuilt instead of building from source.
-  nix.settings.extra-substituters = [ "https://cache.numtide.com" ];
-  nix.settings.extra-trusted-public-keys = [
-    "niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g="
-  ];
-
-  # Automatic garbage collection: weekly, keep last 30 days of generations.
-  nix.gc = {
-    automatic = true;
-    dates = "weekly";
-    options = "--delete-older-than 30d";
-  };
-
-  # Deduplicate the store via hardlinks.
-  nix.optimise.automatic = true;
-
-  # Bootloader.
-  boot.loader.systemd-boot.enable = true;
   boot.loader.systemd-boot.configurationLimit = 20;
-  boot.loader.efi.canTouchEfiVariables = true;
-
-  boot.supportedFilesystems = [
-    "ntfs"
-    "exfat"
-  ];
 
   # The PC is "pc": distinct names keep mDNS (*.local) and a bare
   # `nixos-rebuild --flake ~/.config/nixos` (which picks the hostname) apart.
   networking.hostName = "laptop";
-  networking.hosts = {
-    "localhost:5173" = [ "oriana.local" ];
-  };
 
-  hardware.bluetooth.enable = true;
   # Off at every boot: off is the usual state here, and with AutoEnable it
   # came back on after each boot (switched off by hand 5 times since 16 Oct).
   # The bar's Bluetooth card turns it on when it's needed. Applies to every
@@ -129,8 +93,6 @@
     HandlePowerKeyLongPress = "poweroff";
   };
 
-  time.timeZone = "Europe/Berlin";
-
   # Where the laptop is, for the bar's weather (weather.py): at each fetch,
   # every 10 minutes, it asks GeoClue, which sends the Wi-Fi networks in
   # sight to beaconDB (the module's default provider), and falls back to
@@ -145,27 +107,6 @@
       isAllowed = true;
       isSystem = false;
     };
-  };
-
-  # Select internationalisation properties.
-  i18n.defaultLocale = "en_US.UTF-8";
-
-  i18n.extraLocaleSettings = {
-    LC_ADDRESS = "de_DE.UTF-8";
-    LC_IDENTIFICATION = "de_DE.UTF-8";
-    LC_MEASUREMENT = "de_DE.UTF-8";
-    LC_MONETARY = "de_DE.UTF-8";
-    LC_NAME = "de_DE.UTF-8";
-    LC_NUMERIC = "de_DE.UTF-8";
-    LC_PAPER = "de_DE.UTF-8";
-    LC_TELEPHONE = "de_DE.UTF-8";
-    LC_TIME = "de_DE.UTF-8";
-  };
-
-  # Configure keymap in X11
-  services.xserver.xkb = {
-    layout = "us";
-    variant = "";
   };
 
   # BAT0's charge mode for the Battery card: charge-mode-access, above.
@@ -186,16 +127,7 @@
     }
   ];
 
-  users.users.kirill = {
-    isNormalUser = true;
-    description = "Kirill";
-    extraGroups = [
-      "networkmanager"
-      "wheel"
-      "input"
-    ];
-    shell = pkgs.zsh;
-  };
+  users.users.kirill.description = "Kirill";
 
   users.users.lena = {
     isNormalUser = true;
@@ -219,45 +151,6 @@
     shell = pkgs.zsh;
   };
 
-  # Allow unfree packages
-  nixpkgs.config.allowUnfree = true;
-
-  # Create mount directories for iphone
-  systemd.tmpfiles.rules = [
-    "d /media/kirill 0755 kirill users -"
-    "d /media/kirill/iphone 0755 kirill users -"
-  ];
-
-  environment.sessionVariables = {
-    NIXOS_OZONE_WL = "1";
-  };
-
-  environment.systemPackages = with pkgs; [
-    # Thumbnail generation (used by system services)
-    libheif
-    ffmpeg-headless
-    ffmpegthumbnailer
-
-    # iPhone/USB mounting support
-    ntfs3g
-    usbutils
-    usbmuxd
-    ifuse
-  ];
-
-  fonts.packages = with pkgs; [
-    font-awesome
-    nerd-fonts.fantasque-sans-mono
-    nerd-fonts.caskaydia-cove
-    nerd-fonts.jetbrains-mono
-  ];
-
-  services.tumbler.enable = true;
-
-  services.xserver = {
-    enable = true;
-  };
-
   # Theme and package: modules/nixos/desktop.nix.
   services.displayManager.sddm = {
     # X11 greeter (not Wayland) so the Xsetup script below can place the login
@@ -278,50 +171,6 @@
       fi
     '';
   };
-  programs.nix-ld.enable = true;
-  programs.nix-ld.libraries = with pkgs; [
-    stdenv.cc.cc.lib
-  ];
-
-  programs.steam = {
-    enable = true;
-    remotePlay.openFirewall = true;
-  };
-
-  programs.ydotool.enable = true;
-
-  programs.chromium = {
-    enable = true;
-    extensions = [
-      "bkkmolkhemgaeaeggcmfbghljjjoofoh" # Catppuccin Mocha theme
-    ];
-  };
-
-  programs.zsh.enable = true;
-
-  # blueman-manager, for what the bar's Bluetooth card doesn't do (e.g. a
-  # legacy PIN pairing), and its D-Bus mechanism, for every user. Installed
-  # here only: listed again in home-shared.nix, its applet's D-Bus name was
-  # registered twice.
-  services.blueman.enable = true;
-
-  services.gvfs.enable = true;
-  services.udisks2.enable = true;
-  services.usbmuxd.enable = true;
-
-  # Enable graphics
-  hardware.graphics = {
-    enable = true;
-    enable32Bit = true;
-    # VA-API driver for the Intel GPU (iHD), so video decodes on its media
-    # engine instead of the CPU: there was no Intel *_drv_video.so at all.
-    extraPackages = [ pkgs.intel-media-driver ];
-  };
-
-  # Enable the OpenSSH daemon.
-  # services.openssh.enable = true;
-
-  networking.firewall.enable = true;
 
   # Compressed swap in RAM, so a memory spike slows things down instead of
   # the kernel killing processes. Priority 5: used before the swap file.

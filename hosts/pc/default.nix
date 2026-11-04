@@ -1,74 +1,33 @@
 #
 # Desktop PC -- Hyprland workstation, HDMI path to the LG C4 for lossless
-# TrueHD playback (see `play` in ./home.nix), and the NFS client of the NAS.
+# TrueHD playback (./tv.nix), and the NFS client of the NAS. What it shares
+# with the laptop, Hyprland included, is modules/nixos/workstation.nix;
+# Kirill's Home Manager config here is ./home.nix. The PC's own hardware and
+# features each have a module, imported below.
 #
-{
-  config,
-  pkgs,
-  inputs,
-  ...
-}:
+{ ... }:
 
-let
-  # True only when an NVIDIA card (PCI vendor 0x10de) is actually installed.
-  # Used as ExecCondition on the NVIDIA-dependent units so they skip cleanly
-  # while the 1080 Ti is out and start by themselves when it returns.
-  # Checking /dev/nvidia* would not work: /dev/nvidiactl exists regardless.
-  nvidiaPresent = "${pkgs.bash}/bin/bash -c 'grep -qx 0x10de /sys/bus/pci/devices/*/vendor'";
-
-  # Wired LAN NIC (MAC 9c:6b:00:a3:38:bc).  Its name follows the PCI bus
-  # number, so it can change when PCIe cards are added or pulled -- it used to
-  # be enp3s0.  Check `ip -br link` if WoL fails again.
-  lanIf = "enp4s0";
-
-  # Super+I bridge: the PC's keyboard and mouse become a Bluetooth HID
-  # device for the work iPhone (see the docstring in the script).
-  iphone-hid = pkgs.writers.writePython3Bin "iphone-hid" {
-    libraries = with pkgs.python3Packages; [
-      evdev
-      dbus-fast
-    ];
-    # F821/F722: dbus-fast declares D-Bus signatures as string annotations
-    # ("o", "a{sv}"), which pyflakes mistakes for forward references.
-    flakeIgnore = [
-      "E501"
-      "F821"
-      "F722"
-    ];
-  } (builtins.readFile ../../dotfiles/iphone-hid/iphone-hid.py);
-in
 {
   imports = [
     ./hardware-configuration.nix # the nixos-generate-config scan
+    ./options.nix # pc.* values the modules below share
+    ./gpu.nix # the GTX 1080 Ti and the iGPU
+    ./diagnostics.nix # what a hard freeze leaves on disk
+    ./wake-on-lan.nix # what may wake it from suspend
+    ./iphone.nix # Bluetooth keyboard/mouse for the iPhone, AirPlay mirroring
+    ./tv.nix # films on the LG C4: play, celluloid-auto, tv, the NAS library
+    ./paperless.nix # the NAS's Paperless documents as files: /mnt/paperless
+    ./immich-ml.nix # face/search AI for the NAS's Immich (too little RAM there)
+    ./outlook-mcp.nix # one SSH tunnel to the NAS's shared Outlook server for omp
+    ./syncthing.nix # the heidi folder, synced with the notebook
+    ./tailscale.nix # the tailnet: the phone reaches the PC, the PC the NAS
+    ./t3code.nix # T3 Code server for agent sessions started from the phone
+    ./vault.nix # Vaultwarden for agents: rbw and the vault fill tool
     ./calendar.nix # the NAS's calendars, synced for the bar's calendar card
-    ../../modules/nixos/desktop.nix # Hyprland, the bar's system side, hyprlock's PAM entry
-    inputs.nvidia-pstated.nixosModules.default
-    inputs.home-manager.nixosModules.home-manager
+    ../../modules/nixos/workstation.nix # what the PC shares with the laptop
   ];
 
-  # Home Manager as a NixOS module: it activates with the system, reuses the
-  # system's nixpkgs (overlays included) and installs per-user packages into
-  # /etc/profiles/per-user rather than a separate profile.
-  home-manager = {
-    useGlobalPkgs = true;
-    useUserPackages = true;
-    users.kirill = import ./home.nix;
-    backupFileExtension = "backup";
-    # Pass the flake inputs to home.nix.
-    extraSpecialArgs = { inherit inputs; };
-  };
-
-  nix.settings.experimental-features = [
-    "nix-command"
-    "flakes"
-  ];
-
-  # Prebuilt Orca (and the rest of llm-agents.nix) so Electron never builds
-  # locally.
-  nix.settings.extra-substituters = [ "https://cache.numtide.com" ];
-  nix.settings.extra-trusted-public-keys = [
-    "niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g="
-  ];
+  home-manager.users.kirill = import ./home.nix;
 
   # Passwordless sudo for just the commands Claude Code needs to rebuild and
   # debug services unattended; everything else still asks for the password.
@@ -97,461 +56,47 @@ in
   # Age, not count: nix.gc has no keep-newest-N option. 60d leaves roughly a
   # month of rollback depth, which is far more than the "the last switch broke
   # something" case this is actually for.
-  nix.gc = {
-    automatic = true;
-    dates = "weekly";
-    options = "--delete-older-than 60d";
+  nix.gc.options = "--delete-older-than 60d";
+
+  boot.loader.systemd-boot = {
+    memtest86.enable = true;
+    # Caps boot menu entries and what lands on the 1 GiB ESP. Unrelated to
+    # the store: this frees no /nix space and deletes no generations, it
+    # only stops the menu and /boot growing without bound.
+    configurationLimit = 100;
   };
-
-  # Hardlink identical store paths together. Costs a periodic scan, and pays
-  # for itself on a store this size.
-  nix.optimise.automatic = true;
-
-  nixpkgs.overlays = [
-    (_final: prev: {
-      python3 = prev.python3.override {
-        packageOverrides = _pyfinal: pyprev: {
-          catppuccin = pyprev.catppuccin.overridePythonAttrs (old: {
-            postPatch = (old.postPatch or "") + ''
-              substituteInPlace catppuccin/__init__.py \
-                --replace-fail 'if importlib.util.find_spec("matplotlib") is not None:' \
-                               'if False:'
-            '';
-            disabledTestPaths = (old.disabledTestPaths or [ ]) ++ [ "tests/test_matplotlib.py" ];
-          });
-        };
-      };
-      catppuccin-gtk = prev.catppuccin-gtk.overrideAttrs (old: {
-        postPatch = (old.postPatch or "") + ''
-          substituteInPlace sources/build/args.py \
-            --replace-quiet 'type=bool,' ""
-        '';
-      });
-    })
-  ];
-
-  # Bootloader.
-  boot.loader = {
-    systemd-boot = {
-      enable = true;
-      memtest86.enable = true;
-      # Caps boot menu entries and what lands on the 1 GiB ESP. Unrelated to
-      # the store: this frees no /nix space and deletes no generations, it
-      # only stops the menu and /boot growing without bound.
-      configurationLimit = 100;
-    };
-    efi.canTouchEfiVariables = true;
-  };
-
-  boot.blacklistedKernelModules = [ "nouveau" ];
-  boot.supportedFilesystems = [
-    "ntfs"
-    "exfat"
-  ];
 
   networking.hostName = "pc";
-  networking.hosts = {
-    "localhost:5173" = [ "oriana.local" ];
-  };
 
-  # Enable networking
-  networking.networkmanager.enable = true;
-
-  # mDNS/zeroconf, so *.local names resolve (e.g. the NAS as nixos.local)
+  # mDNS/zeroconf, so *.local names resolve (e.g. the NAS as nas.local)
   # instead of having to look up its address in the router's DHCP leases.
+  # Publishing, for UxPlay, is in ./iphone.nix.
   #   nssmdns4     - wires mdns into /etc/nsswitch.conf, which is what actually
   #                  makes ssh/ping/curl able to resolve .local at all
   #   openFirewall - opens UDP/5353; without it the firewall drops the mDNS
   #                  replies, since multicast responses aren't ESTABLISHED
-  #   publish      - lets UxPlay register its AirPlay service through avahi's
-  #                  DNS-SD socket; without it the iPhone never sees the PC
   services.avahi = {
     enable = true;
     nssmdns4 = true;
     openFirewall = true;
-    publish = {
-      enable = true;
-      userServices = true;
-    };
-  };
-
-  hardware.bluetooth = {
-    enable = true;
-    powerOnBoot = true;
-    # For iphone-hid, which makes this adapter a keyboard+mouse:
-    #   input    - listens on the HID L2CAP PSMs 17/19 that iphone-hid needs.
-    #              Costs the PC the use of Bluetooth keyboards, mice and
-    #              gamepads; none are used here (both input devices are
-    #              2.4 GHz dongles, the only pairing is the Bose headphones).
-    #   hostname - would reset the device class to "desktop computer", and
-    #              iOS does not offer computers in its Bluetooth list.
-    disabledPlugins = [
-      "input"
-      "hostname"
-    ];
-    settings.General = {
-      Name = "PC";
-      # Major class peripheral, minor class keyboard+pointing combo.
-      Class = "0x0005C0";
-    };
-  };
-
-  systemd.services.iphone-hid = {
-    description = "PC keyboard and mouse as a Bluetooth HID device for the iPhone";
-    wantedBy = [ "multi-user.target" ];
-    after = [ "bluetooth.service" ];
-    requires = [ "bluetooth.service" ];
-    # Restart with bluetoothd: its agent and SDP record die with it.
-    partOf = [ "bluetooth.service" ];
-    path = [
-      pkgs.util-linux # runuser, for desktop notifications
-      pkgs.libnotify
-    ];
-    environment.IPHONE_HID_USER = "kirill";
-    serviceConfig = {
-      ExecStart = "${iphone-hid}/bin/iphone-hid";
-      StateDirectory = "iphone-hid";
-      Restart = "on-failure";
-      RestartSec = 3;
-    };
-  };
-
-  time.timeZone = "Europe/Berlin";
-
-  # Select internationalisation properties.
-  i18n.defaultLocale = "en_US.UTF-8";
-
-  i18n.extraLocaleSettings = {
-    LC_ADDRESS = "de_DE.UTF-8";
-    LC_IDENTIFICATION = "de_DE.UTF-8";
-    LC_MEASUREMENT = "de_DE.UTF-8";
-    LC_MONETARY = "de_DE.UTF-8";
-    LC_NAME = "de_DE.UTF-8";
-    LC_NUMERIC = "de_DE.UTF-8";
-    LC_PAPER = "de_DE.UTF-8";
-    LC_TELEPHONE = "de_DE.UTF-8";
-    LC_TIME = "de_DE.UTF-8";
-  };
-
-  # Configure keymap in X11
-  services.xserver.xkb = {
-    layout = "us";
-    variant = "";
   };
 
   users.users.kirill = {
-    isNormalUser = true;
     description = "Kirill Menke";
-    extraGroups = [
-      "networkmanager"
-      "wheel"
-      "input"
-      "docker"
-    ];
-    shell = pkgs.zsh;
+    extraGroups = [ "docker" ];
   };
 
   # Docker — needed by Strix to run its pentest agents in a sandbox container.
   virtualisation.docker.enable = true;
 
-  # Allow unfree packages
-  nixpkgs.config.allowUnfree = true;
-
-  # Create mount directories for iphone
-  systemd.tmpfiles.rules = [
-    "d /media/kirill 0755 kirill users -"
-    "d /media/kirill/iphone 0755 kirill users -"
-    # NOTE: the jellyfin ACLs that used to live here were dropped when Jellyfin
-    # moved to the NAS -- the jellyfin user no longer exists on this host, and
-    # tmpfiles rules naming a nonexistent user fail at activation.
-    # The ACLs already written to disk are inert but persist; clear them with
-    #   setfacl -R -x u:jellyfin /home/kirill/Videos
-    # once the library has been moved off this machine.
-  ];
-
-  environment.sessionVariables = {
-    NIXOS_OZONE_WL = "1";
-    CLAUDE_CODE_MAX_OUTPUT_TOKENS = "128000";
-  };
-
-  environment.systemPackages = with pkgs; [
-    # Wine dependencies for system-wide Bottles support
-    wine-staging
-    winetricks
-    gnutls
-    libgcrypt
-    openssl
-
-    # Thumbnail generation (used by system services)
-    libheif
-    ffmpeg-headless
-    ffmpegthumbnailer
-
-    # iPhone/USB mounting support
-    ntfs3g
-    usbutils
-    usbmuxd
-    ifuse
-  ];
-
-  fonts.packages = with pkgs; [
-    font-awesome
-    nerd-fonts.fantasque-sans-mono
-    nerd-fonts.caskaydia-cove
-    nerd-fonts.jetbrains-mono
-  ];
-
-  services.tumbler.enable = true;
-
-  # Jellyfin moved to the NAS (hosts/nas/media.nix) -- it is always on and the
-  # library lives there now. Reach it at http://nas.local:8096.
-  #
-  # The library is still mounted locally, below, because the Jellyfin webOS app
-  # on the C4 cannot bitstream Dolby TrueHD. Playing from this machine over
-  # HDMI is the only path that gets lossless TrueHD Atmos to the Q995GF, so
-  # `play <file>` must keep working against the same files.
-  fileSystems."/mnt/media" = {
-    device = "nas.local:/tank/data/media";
-    fsType = "nfs";
-    options = [
-      # Don't block boot on the NAS being up, and don't wedge the desktop if it
-      # goes away mid-session -- `soft` returns an error instead of hanging.
-      "x-systemd.automount"
-      "noauto"
-      "x-systemd.idle-timeout=600"
-      "soft"
-      "timeo=150"
-      "retrans=3"
-      "ro"
-      "nfsvers=4.2"
-    ];
-  };
-
-  services.xserver = {
-    enable = true;
-    videoDrivers = [ "nvidia" ];
-  };
+  environment.sessionVariables.CLAUDE_CODE_MAX_OUTPUT_TOKENS = "128000";
 
   # SDDM and its Catppuccin theme: modules/nixos/desktop.nix.
   services.displayManager.sddm.wayland.enable = true;
 
-  programs.nix-ld.enable = true;
-  programs.nix-ld.libraries = with pkgs; [
-    stdenv.cc.cc.lib
-  ];
-
-  programs.steam = {
-    enable = true;
-    remotePlay.openFirewall = true;
-  };
-
-  programs.ydotool.enable = true;
-
   # On-screen keystroke display for screen recordings (Wayland-native,
   # needs the setuid wrapper this module provides to read input devices)
   programs.wshowkeys.enable = true;
-
-  programs.zsh.enable = true;
-
-  services.blueman.enable = true;
-
-  services.gvfs.enable = true;
-  services.udisks2.enable = true;
-  services.usbmuxd.enable = true;
-
-  # The 2.4 GHz receivers resume the box the instant S3 is entered — the mouse
-  # sensor twitches, the dongle signals remote wakeup, and suspend lasts <1s.
-  # Keep them from arming USB wakeup at all; the power button still wakes.
-  services.udev.extraRules = ''
-    ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="046d", ATTR{idProduct}=="c547", ATTR{power/wakeup}="disabled"
-    ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="36b0", ATTR{idProduct}=="3002", ATTR{power/wakeup}="disabled"
-  '';
-
-  # For Wayland/Hyprland compatibility
-  hardware.nvidia = {
-    modesetting.enable = true;
-    powerManagement.enable = true;
-    nvidiaPersistenced = true; # keep driver state loaded — avoids Pascal P-state hangs
-    open = false; # Use proprietary drivers (GTX 1080Ti isn't supported by open drivers)
-    nvidiaSettings = true;
-    # GTX 1080 Ti (Pascal) — 595+ dropped support.
-    # The 2026-09 "1440p@60 only" cap was nvidia-pstated, not the driver
-    # version (see services.nvidia-pstated below) — no need to pin.
-    package = config.boot.kernelPackages.nvidiaPackages.legacy_580;
-  };
-
-  # Enable opengl
-  hardware.graphics = {
-    enable = true;
-    enable32Bit = true;
-    # VAAPI for the Alder Lake iGPU.  Without this only nvidia_drv_video.so was
-    # present, so hardware decoding was impossible and 4K HEVC 10-bit ran on the
-    # CPU.  intel-media-driver provides iHD (Gen8+); intel-vaapi-driver is the
-    # older i965 fallback.
-    extraPackages = with pkgs; [
-      intel-media-driver
-      libva-utils # `vainfo`, to check what the GPU can decode
-      # OpenCL for the iGPU.  Jellyfin's HDR tonemapping filter needs it
-      # (`-init_hw_device opencl=ocl:0.0`), and the only ICD present was
-      # nvidia.icd for the removed card, so `clinfo` reported 0 platforms and
-      # ffmpeg died immediately -- the "cannot play on the TV" symptom.
-      intel-compute-runtime
-      ocl-icd
-    ];
-  };
-
-  # Pin GPU to P0 — Pascal consumer cards don't support nvidia-smi clock locks,
-  # and NVIDIA removed PowerMizer modprobe options in driver 530+. nvidia-pstated
-  # uses libnvidia-api.so to set P-state directly. Both low/high are P0 to avoid
-  # transitions entirely (transitions are what cause the hangs).
-  # DISABLED 2026-09-26: forcing the P-state pinned the display clock low
-  # (P0 at idle-level clocks), so the driver dropped every mode above ~370 MHz
-  # pixel clock -- both panels capped at 1440p@60 on DP and HDMI -- and forced
-  # modes underflowed (flicker, half-screen garbage).  With the daemon stopped
-  # the GPU idles in P8 and offers 1440p@180/144 again.  The Pascal "P-state
-  # hangs" it was added for turned out to be the RAM/board freezes.
-  services.nvidia-pstated = {
-    enable = false;
-    performanceStateLow = 0;
-    performanceStateHigh = 0;
-  };
-
-  # Upstream module's unit lacks LD_LIBRARY_PATH; the daemon dlopen()s
-  # libnvidia-api.so.1 which lives under /run/opengl-driver/lib on NixOS.
-  systemd.services.nvidia-pstated.environment.LD_LIBRARY_PATH = "/run/opengl-driver/lib";
-
-  # Every NVIDIA-dependent unit is gated on the card actually being in the
-  # machine, so pulling it does not leave services crash-looping (the old
-  # gpu-log logger hit 36 restarts in one boot while the 1080 Ti was out).  ExecCondition marks
-  # the unit *skipped* rather than failed, so `nixos-rebuild` also stays quiet.
-  #
-  # The check is the PCI vendor ID: /dev/nvidia* is not usable because
-  # /dev/nvidiactl exists even with no card installed.
-  systemd.services.nvidia-persistenced.serviceConfig.ExecCondition = nvidiaPresent;
-  systemd.services.nvidia-pstated.serviceConfig.ExecCondition = nvidiaPresent;
-
-  # Freeze diagnostics: log CPU/NVMe temps, RAM, load and GPU state to the
-  # journal every 10s so the last samples before a hard freeze are on disk.
-  systemd.services.sysmon = {
-    description = "Log system health metrics for crash diagnostics";
-    wantedBy = [ "multi-user.target" ];
-    after = [ "nvidia-persistenced.service" ];
-    path = [
-      pkgs.coreutils
-      pkgs.gawk
-      config.hardware.nvidia.package.bin
-    ];
-    script = ''
-      while true; do
-        cpu=""; nvme=""
-        for h in /sys/class/hwmon/hwmon*; do
-          case "$(cat "$h/name")" in
-            coretemp) cpu=$(( $(cat "$h/temp1_input") / 1000 )) ;;
-            nvme)     nvme=$(( $(cat "$h/temp1_input") / 1000 )) ;;
-          esac
-        done
-        mem=$(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo)
-        swap=$(awk '/SwapFree/ {print int($2/1024)}' /proc/meminfo)
-        load=$(cut -d' ' -f1-3 /proc/loadavg)
-        gpu=$(nvidia-smi --query-gpu=temperature.gpu,power.draw,utilization.gpu,memory.used,clocks.sm,pstate \
-              --format=csv,noheader 2>&1 | tr -d '\n')
-        echo "cpu=''${cpu}C nvme=''${nvme}C mem_avail=''${mem}MiB swap_free=''${swap}MiB load=''${load} gpu: ''${gpu}"
-        sleep 10
-      done
-    '';
-    serviceConfig = {
-      Restart = "always";
-      RestartSec = 5;
-      SyslogIdentifier = "sysmon";
-    };
-  };
-
-  # Flush journal to disk every 15s (default is 5min) — otherwise the last
-  # minutes before a hard freeze never reach disk and the log looks like the
-  # system died earlier than it did.
-  services.journald.settings.Journal.SyncIntervalSec = "15s";
-
-  # Log MCEs / hardware errors (CPU, memory controller, PCIe AER) persistently.
-  hardware.rasdaemon.enable = true;
-
-  # If the kernel detects a lockup, panic instead of hanging silently: the
-  # panic (with backtrace) lands in EFI pstore and is readable after reboot
-  # under /sys/fs/pstore. kernel.panic=30 then reboots automatically.
-  boot.kernel.sysctl = {
-    "kernel.softlockup_panic" = 1;
-    "kernel.hardlockup_panic" = 1;
-    "kernel.panic" = 30;
-    "kernel.sysrq" = 1; # allow Alt+SysRq (REISUB) as a softer escape than the power button
-  };
-
-  # Open Syncthing's sync (22000/tcp+udp) and local discovery (21027/udp) ports
-  services.syncthing.openDefaultPorts = true;
-
-  # Enable the OpenSSH daemon.
-  # services.openssh.enable = true;
-
-  # Open ports in the firewall.
-  # networking.firewall.allowedTCPPorts = [ ... ];
-  # networking.firewall.allowedUDPPorts = [ ... ];
-  networking.firewall.enable = true;
-  # 7000/7001/7100 TCP + 6000/6001/7011 UDP: UxPlay AirPlay mirroring, which
-  # uses these fixed ports only when started with `-p` (default is random).
-  # Scoped to the wired LAN interface rather than opened globally.
-  # (Interface-scoped rather than `extraInputRules`, which is nftables-only and
-  # this host still uses the iptables backend.)
-  networking.firewall.interfaces.${lanIf} = {
-    allowedTCPPorts = [
-      7000
-      7001
-      7100
-    ];
-    allowedUDPPorts = [
-      6000
-      6001
-      7011
-    ];
-  };
-
-  # Wake-on-LAN on the wired NIC, so a suspended box can be brought back from
-  # the phone (`wake-pc` on the NAS).  The PCI device had wakeup disabled, so
-  # nothing could reach it in S3 at all.
-  #
-  # `wol g` is magic packet only.  It used to be `wol ug`, adding unicast so the
-  # phone's connection attempt was itself the wake trigger and nothing
-  # had to send a separate magic packet.  That cost more than it was worth: the
-  # NIC cannot tell that packet from any other addressed to this host, and this
-  # LAN carries ~18 packets/s of ordinary traffic to us, so S3 never survived
-  # more than a few seconds.  Suspends on 2026-07-26 and 2026-07-29 all resumed
-  # within 6-9s with no device claiming the wake -- the firmware denies native
-  # PCIe PME (`_OSC: platform does not support [PCIeHotplug PME]`), so the NIC's
-  # PME surfaced only as ACPI gpe6D, which is why every power/wakeup_count read
-  # 0 and the cause stayed hidden.  Waking from the phone now needs a magic
-  # packet to 9c:6b:00:a3:38:bc first.
-  #
-  # NOT `networking.interfaces.<if>.wakeOnLan`: that writes a systemd .link
-  # file, which NixOS only installs into /etc/systemd/network when
-  # systemd-networkd is enabled.  This host runs NetworkManager, so the file was
-  # never placed, udev went on applying 99-default.link, and the setting looked
-  # applied while the NIC stayed wakeup-disabled.  Setting it with ethtool works
-  # regardless of which network daemon is in charge.
-  systemd.services.wake-on-lan = {
-    description = "Arm Wake-on-LAN on ${lanIf}";
-    wantedBy = [ "multi-user.target" ];
-    after = [ "network.target" ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = pkgs.writeShellScript "arm-wol" ''
-        ${pkgs.ethtool}/bin/ethtool -s ${lanIf} wol g
-      '';
-    };
-  };
-
-  # Re-arm immediately before suspending: the setting only matters at that
-  # moment, and NetworkManager reactivating the link can clear it in between.
-  powerManagement.powerDownCommands = ''
-    ${pkgs.ethtool}/bin/ethtool -s ${lanIf} wol g || true
-  '';
 
   # This value determines the NixOS release from which the default
   # settings for stateful data, like file locations and database versions

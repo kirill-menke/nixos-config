@@ -3,9 +3,10 @@
 
 Usage: orca-pet-speech-bubble.py <app.asar>   (rewritten in place)
 
-Upstream (<= 1.4.224) has no pet speech bubble (stablyai/orca#26449 is still
-open and only speaks about agent status). This injects a renderer-only bubble
-component, `HeidiPetBubble`, into renderer/assets/PetOverlay-*.js. It polls the
+Upstream (anchors checked against 1.4.248) has no pet speech bubble
+(stablyai/orca#26449 is still open and only speaks about agent status). This
+injects a renderer-only bubble component, `HeidiPetBubble`, into
+renderer/assets/PetOverlay-*.js. It polls the
 plugin command `heidi.codepipeline` / `pet-feed` every 5 s with
 {cursor, focused} through window.api.plugins.invokeCommand (60 s back-off while
 the call throws, e.g. plugin disabled) and shows the returned team-activity
@@ -32,11 +33,14 @@ interval and timers are cleared on unmount. React and jsx-runtime are the
 bundle's own bindings, captured by regex (minified names change per build).
 
 Anchors (each must match exactly once):
-  react / jsx-runtime chunk imports and their `var X=e(t())` namespaces
-  `{dragging:u,dragAnimation:…,handlers:…}=E(` in the PetOverlay function
-  `return(0,j.jsx)(`div`,{"aria-hidden":!0,className:`pointer-events-none
+  react chunk import and its `var X=e(t())` namespace
+  `return(0,J.jsx)(`div`,{"aria-hidden":!0,className:`pointer-events-none
    fixed z-40`,style:{left:c.x,top:c.y,width:a,height:a},children:…}` up to
-   `}var G=W;export{W as PetOverlay,`
+   `}export{W as PetOverlay,`; J is the jsx-runtime namespace, which must be
+   `var J=f()` with f imported from a sibling chunk (the runtime is bundled
+   into a shared chunk: the client chunk up to 1.4.237, the button chunk in
+   1.4.248)
+  `{dragging:u,dragAnimation:…,handlers:…}=E(` in the PetOverlay function
 
 The `web/` bundles (browser-hosted Orca) are left alone.
 
@@ -44,11 +48,14 @@ Any anchor mismatch, or an asar that already contains HeidiPetBubble, exits
 non-zero and the Nix build fails: after an Orca bump, re-check the anchors.
 
 The asar is rewritten without repacking: only the patched file's bytes,
-offsets and integrity hashes change; `unpacked` entries and everything else are
-kept as they are.
+offsets, sizes and integrity hashes change; everything else is kept as it is.
+Since 1.4.232 the renderer bundles are `unpacked`: such targets are rewritten
+in place under <app.asar>.unpacked/, and their header size/integrity are
+updated to match.
 """
 import hashlib
 import json
+import os
 import re
 import struct
 import sys
@@ -121,8 +128,12 @@ def patch_pet_overlay(js):
         sys.exit(f"{NAME}: PetOverlay already contains HeidiPetBubble (asar already patched?)")
     react_import = find_once("react import", r'import\{t as (\w+)\}from"\./react-[\w-]+\.js"', js)
     react = find_once("react namespace", rf"var (\w+)=\w+\({re.escape(react_import)}\(\)\)", js)
-    jsx_import = find_once("jsx-runtime import", r'import\{t as (\w+)\}from"\./jsx-runtime-[\w-]+\.js"', js)
-    jsx = find_once("jsx-runtime namespace", rf"var (\w+)=\w+\({re.escape(jsx_import)}\(\)\)", js)
+    jsx = find_once(
+        "jsx-runtime use",
+        r"return\(0,(\w+)\.jsx\)\(`div`,\{\"aria-hidden\":!0,className:`pointer-events-none fixed z-40`,", js)
+    jsx_import = find_once("jsx-runtime namespace", rf"var {re.escape(jsx)}=(\w+)\(\)[;,]", js)
+    find_once("jsx-runtime import",
+              rf'import\{{[^}}]*\b\w+ as {re.escape(jsx_import)}[,}}][^;]*from"\./[\w-]+\.js"', js)
     dragging = find_once(
         "drag state",
         r"\{dragging:(\w+),dragAnimation:\w+,hovering:\w+,dragGeneration:\w+,handlers:\w+\}=\w+\(", js)
@@ -132,7 +143,7 @@ def patch_pet_overlay(js):
         "pet root",
         rf"return(\(0,{j}\.jsx\)\(`div`,\{{\"aria-hidden\":!0,className:`pointer-events-none fixed z-40`,"
         rf"style:\{{left:(\w+)\.x,top:\2\.y,width:(\w+),height:\3\}},children:.*?)\}}"
-        rf"(var \w+=(\w+);export\{{\5 as PetOverlay,)",
+        rf"(export\{{\w+ as PetOverlay,)",
         lambda m: f"return(0,{jsx}.jsxs)({jsx}.Fragment,{{children:[{m[1]},(0,{jsx}.jsx)(HeidiPetBubble,"
         f"{{x:{m[2]}.x,y:{m[2]}.y,size:{m[3]},dragging:{dragging}}})]}})}}{bubble}{m[4]}",
         js,
@@ -166,31 +177,45 @@ def main(asar_path):
     header = json.loads(raw[16:16 + json_len])
     base = 8 + header_pickle_size
 
-    files = []  # (path, node) for packed files, in archive order
+    packed, unpacked = [], []  # (path, node); packed sorted into archive order below
     def walk(node, prefix):
         for name, child in node["files"].items():
             p = f"{prefix}{name}"
             if "files" in child:
                 walk(child, p + "/")
-            elif "offset" in child and not child.get("unpacked"):
-                files.append((p, child))
+            elif child.get("unpacked"):
+                unpacked.append((p, child))
+            elif "offset" in child:
+                packed.append((p, child))
     walk(header, "")
-    files.sort(key=lambda e: int(e[1]["offset"]))
+    packed.sort(key=lambda e: int(e[1]["offset"]))
+
+    def patch(key, fn, node, data):
+        data = fn(data.decode("utf-8")).encode("utf-8")
+        node["integrity"] = integrity(data)
+        node["size"] = len(data)
+        patched.append(key)
+        return data
 
     patched = []
     chunks, offset = [], 0
-    for path, node in files:
+    for path, node in packed:
         start = base + int(node["offset"])
         data = raw[start:start + node["size"]]
         key, fn = target(path)
         if fn:
-            data = fn(data.decode("utf-8")).encode("utf-8")
-            node["integrity"] = integrity(data)
-            patched.append(key)
+            data = patch(key, fn, node, data)
         node["offset"] = str(offset)
         node["size"] = len(data)
         chunks.append(data)
         offset += len(data)
+    disk_writes = []
+    for path, node in unpacked:
+        key, fn = target(path)
+        if fn:
+            disk = os.path.join(asar_path + ".unpacked", path)
+            with open(disk, "rb") as f:
+                disk_writes.append((disk, patch(key, fn, node, f.read())))
     if sorted(patched) != sorted(TARGETS):
         sys.exit(f"{NAME}: expected one each of {sorted(TARGETS)}, patched {sorted(patched)}")
 
@@ -203,6 +228,9 @@ def main(asar_path):
         f.write(header_pickle)
         for c in chunks:
             f.write(c)
+    for disk, data in disk_writes:
+        with open(disk, "wb") as f:
+            f.write(data)
     print(f"{NAME}: patched {asar_path}")
 
 

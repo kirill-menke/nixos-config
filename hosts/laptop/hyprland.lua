@@ -1,5 +1,5 @@
--- The laptop's part of the Hyprland config: its screens, the lid and the
--- cursor. modules/home/desktop.nix puts it ahead of the shared
+-- The laptop's part of the Hyprland config: its screens and the lid.
+-- modules/home/desktop.nix puts it ahead of the shared
 -- dotfiles/hypr/hyprland.lua, in the same Lua chunk.
 
 ------------------
@@ -81,13 +81,3 @@ function screen_layout(layout, others)
         hl.monitor(full_rule(output, { disabled = layout == "builtin" and not shut, mirror = mirror }))
     end
 end
-
-
--------------------------------
----- ENVIRONMENT VARIABLES ----
--------------------------------
-
--- XCursor theme of home.pointerCursor (home-shared.nix).
-hl.env("XCURSOR_THEME", "catppuccin-mocha-dark-cursors")
-hl.env("XCURSOR_SIZE", "24")
-
