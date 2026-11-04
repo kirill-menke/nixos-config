@@ -187,14 +187,14 @@
       "locked": {
         "lastModified": 1791316020,
         "narHash": "sha256-I4F/jTRaLuUBgcnimuthupMA3+8fg6YG0Px7fdI7AP4=",
-        "ref": "master",
+        "ref": "main",
         "rev": "326c9bd294107bc0fd0968216ee3bfeac4bf1299",
         "revCount": 99,
         "type": "git",
         "url": "file:///home/kirill/Documents/projects/kirill.es"
       },
       "original": {
-        "ref": "master",
+        "ref": "main",
         "type": "git",
         "url": "file:///home/kirill/Documents/projects/kirill.es"
       }

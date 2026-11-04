@@ -1,7 +1,7 @@
 #
 # kirill.es on the NAS: one cloud-hypervisor microVM running the site plus
 # its own cloudflared. Publicly reachable through Cloudflare Tunnel only;
-# nothing on this host or the router is opened. Only the site's master branch
+# nothing on this host or the router is opened. Only the site's main branch
 # is deployed; there is no staging VM (Kirill tests locally).
 #
 # Guest config: kirill-es-guest.nix. Flake inputs: microvm, kirill-es

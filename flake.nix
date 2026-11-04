@@ -65,13 +65,13 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # kirill.es (private repo): the local checkout, committed files of master
+    # kirill.es (private repo): the local checkout, committed files of main
     # only, never the working tree (hosts/nas/kirill-es.nix). Any update of this
-    # input pins whatever local master holds. Deploy: commit to master (if it
-    # moved on GitHub, `git fetch origin master:master` there first: this reads
+    # input pins whatever local main holds. Deploy: commit to main (if it
+    # moved on GitHub, `git fetch origin main:main` there first: this reads
     # the local branch), then `nix flake update kirill-es` and `rebuild-nas`.
     kirill-es = {
-      url = "git+file:///home/kirill/Documents/projects/kirill.es?ref=master";
+      url = "git+file:///home/kirill/Documents/projects/kirill.es?ref=main";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
