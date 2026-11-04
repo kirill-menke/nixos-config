@@ -22,11 +22,11 @@
     ./adguard.nix
     ./dns-fallback.nix
     ./arr.nix
-    ./claude-code.nix
     ./disko.nix
     ./finance.nix
     ./gatus.nix
     ./glance.nix
+    ./immich.nix
     ./kirill-es.nix
     ./reel-api.nix
     ./media.nix
@@ -38,12 +38,15 @@
     ./scans.nix
     ./secrets.nix
     ./subtitles.nix
+    ./syncthing.nix
+    ./t3code.nix
     ./tailscale.nix
     ./vaultwarden.nix
     ./vibereel-phone.nix
     ./vibereel-web.nix
     ./vpn.nix
     ./wake-pc.nix
+    ./whatsapp.nix
   ];
 
   #############################################################################
@@ -76,7 +79,7 @@
   boot.kernelPackages = pkgs.linuxPackages;
 
   # 7.5 GiB RAM, no swap partition, and many resident services (microVMs,
-  # claude-remote-*, the *arr apps, Jellyfin, Paperless OCR). Compressed swap
+  # T3 Code's agents, the *arr apps, Jellyfin, Paperless OCR). Compressed swap
   # in RAM lets idle memory be squeezed instead of the box thrashing its page
   # cache under a memory burst (2026-10-31: two Paperless OCR workers without
   # swap stalled SSH and AdGuard DNS for ~15 minutes).

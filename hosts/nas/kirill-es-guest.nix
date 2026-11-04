@@ -167,7 +167,7 @@
     unitConfig = {
       RequiresMountsFor = [ "/run/host-secrets" ];
       # Boots unattended after power loss, possibly long before the WAN is
-      # back (same reasoning as claude-code.nix): never give up.
+      # back: never give up.
       StartLimitIntervalSec = 0;
     };
     serviceConfig = {

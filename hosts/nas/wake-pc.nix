@@ -2,13 +2,14 @@
 # `wake-pc` -- wake the suspended desktop from anywhere, via this box.
 #
 # The desktop arms Wake-on-LAN for magic packets only (`wol g`, see the
-# wake-on-lan unit in hosts/pc/default.nix). A sleeping NIC has no IP stack:
+# wake-on-lan unit in hosts/pc/wake-on-lan.nix). A sleeping NIC has no IP stack:
 # it cannot answer ARP and only pattern-matches raw frames for its own MAC
 # repeated 16 times. So the packet has to originate on the LAN segment as a
 # broadcast -- a phone on cellular cannot send it through Tailscale, because
-# the PC is not on the tailnet and no router forwards broadcasts. This box is
-# always on and on the LAN, so the phone SSHes here (or asks the NAS's Claude
-# session) and runs `wake-pc`.
+# a sleeping PC is off the tailnet too (its tailscaled is suspended with it)
+# and no router forwards broadcasts. This box is always on and on the LAN, so
+# the phone SSHes here (or asks a T3 Code thread on this box) and runs
+# `wake-pc`.
 #
 # Sent as UDP to port 9 at the subnet-directed broadcast 192.168.0.255, which
 # the kernel routes out enp2s0 (the connected route) and puts on the wire with
