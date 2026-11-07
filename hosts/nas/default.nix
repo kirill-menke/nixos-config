@@ -21,6 +21,7 @@
 
     ./adguard.nix
     ./dns-fallback.nix
+    ./backup.nix
     ./arr.nix
     ./disko.nix
     ./finance.nix

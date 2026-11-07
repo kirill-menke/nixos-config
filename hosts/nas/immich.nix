@@ -7,16 +7,13 @@
 # the app. The phone needs Tailscale connected to back up.
 #
 # The library is a read-only "external library" at /tank/data/photos: a copy of
-# the PC's ~/Documents/usb-backups/photos, which stays the master. Immich never
+# the PC's ~/Pictures/photos, which stays the master. Immich never
 # writes there; its nightly library scan picks up what is synced in later.
-# Sync from the PC (kirill is in the immich group, so group ownership can be
-# set without root):
-#
-#   rsync -rltp --chmod=D2750,F0640 --chown=:immich \
-#     ~/Documents/usb-backups/photos/ nas:/tank/data/photos/
+# Syncthing keeps it in step with the PC since 2026-11-07 (receive-only folder
+# "photos" in syncthing.nix); new files land 0644 with group immich (setgid dir).
 #
 # Phone uploads land in /tank/data/immich/upload. tank is still a single disk,
-# so those have no second copy on this box until the mirror exists.
+# so their only second copy is the off-site backup (backup.nix).
 #
 # Memory: this box has 7.5 GiB and many residents. Immich, its Postgres and its
 # Redis share system-immich.slice, capped at 2.5 GiB of RAM (throttled from

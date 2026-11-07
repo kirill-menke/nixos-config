@@ -9,6 +9,12 @@
 #   ~/.omp/agent         only AGENTS.md and the ADHD bits; sessions, databases,
 #                        config.yml and the PC's Orca extensions stay per host
 #
+# Plus two one-way copies of the PC's archive, for the off-site backup
+# (backup.nix); the PC sends, this box only receives:
+#
+#   /tank/data/pc-documents  the PC's ~/Documents minus memory/profile (above)
+#   /tank/data/photos        the PC's ~/Pictures/photos, also Immich's library
+#
 # The PC's side is hosts/pc/syncthing.nix. The PC dials this box over the
 # tailnet (tailscale0 is a trusted interface, so 22000 needs no firewall rule);
 # global discovery and relays are off, so the profile never leaves the tailnet.
@@ -80,7 +86,23 @@ in
             params.keep = "10";
           };
         };
+        # Receive-only: changes made here are never sent back, and the PC
+        # stays the master. No versioning: restic keeps the history.
+        pc-documents = {
+          path = "/tank/data/pc-documents";
+          type = "receiveonly";
+          devices = [ pc ];
+        };
+        photos = {
+          path = "/tank/data/photos";
+          type = "receiveonly";
+          devices = [ pc ];
+        };
       };
     };
   };
+
+  # Without the pool mounted Syncthing would see empty folders.
+  systemd.services.syncthing.unitConfig.RequiresMountsFor = [ "/tank/data" ];
+  systemd.tmpfiles.rules = [ "d /tank/data/pc-documents 0750 kirill users -" ];
 }
