@@ -98,6 +98,13 @@
   # needs the setuid wrapper this module provides to read input devices)
   programs.wshowkeys.enable = true;
 
+  # AusweisApp for ELSTER login; the iPhone app pairs as card reader
+  # ("Smartphone als Kartenleser"), which needs UDP 24727 open.
+  programs.ausweisapp = {
+    enable = true;
+    openFirewall = true;
+  };
+
   # This value determines the NixOS release from which the default
   # settings for stateful data, like file locations and database versions
   # on your system were taken. It‘s perfectly fine and recommended to leave
