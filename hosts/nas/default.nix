@@ -31,6 +31,7 @@
     ./reel-api.nix
     ./media.nix
     ./options.nix
+    ./orca.nix
     ./outlook.nix
     ./paperless.nix
     ./radicale.nix
