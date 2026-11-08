@@ -4,16 +4,20 @@
 # Agents write to the memory on both machines, which is why this is a two-way
 # sync and not a copy.
 #
-#   ~/Documents/memory   memory index + topic files (AGENTS.md links it)
-#   ~/Documents/profile  Kirill's personal profile (PROFILE.md and its files)
-#   ~/.omp/agent         only AGENTS.md and the ADHD bits; sessions, databases,
-#                        config.yml and the PC's Orca extensions stay per host
+#   ~/Documents/agents/memory   memory index + topic files (AGENTS.md links it)
+#   ~/Documents/agents/profile  Kirill's personal profile (PROFILE.md and its files)
+#   ~/.omp/agent                only AGENTS.md and the ADHD bits; sessions,
+#                               databases, config.yml and the PC's Orca
+#                               extensions stay per host
 #
-# Plus two one-way copies of the PC's archive, for the off-site backup
+# Plus a one-way copy of the PC's archive, for the off-site backup
 # (backup.nix); the PC sends, this box only receives:
 #
-#   /tank/data/pc-documents  the PC's ~/Documents minus memory/profile (above)
-#   /tank/data/photos        the PC's ~/Pictures/photos, also Immich's library
+#   /tank/data/pc-documents  the PC's ~/Documents minus agents/memory and
+#                            agents/profile (above)
+#
+# Photos are not synced: /tank/data/photos on this box is their master since
+# 2026-11-08 (immich.nix), and the PC holds no copy.
 #
 # The PC's side is hosts/pc/syncthing.nix. The PC dials this box over the
 # tailnet (tailscale0 is a trusted interface, so 22000 needs no firewall rule);
@@ -54,7 +58,7 @@ in
       };
       folders = {
         memory = {
-          path = "${home}/Documents/memory";
+          path = "${home}/Documents/agents/memory";
           devices = [ pc ];
           versioning = {
             type = "simple";
@@ -62,7 +66,7 @@ in
           };
         };
         profile = {
-          path = "${home}/Documents/profile";
+          path = "${home}/Documents/agents/profile";
           devices = [ pc ];
           versioning = {
             type = "simple";
@@ -90,11 +94,6 @@ in
         # stays the master. No versioning: restic keeps the history.
         pc-documents = {
           path = "/tank/data/pc-documents";
-          type = "receiveonly";
-          devices = [ pc ];
-        };
-        photos = {
-          path = "/tank/data/photos";
           type = "receiveonly";
           devices = [ pc ];
         };

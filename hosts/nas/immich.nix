@@ -6,11 +6,14 @@
 # serve` publishes it as https://nas.<tailnet>.ts.net:2443, the server URL for
 # the app. The phone needs Tailscale connected to back up.
 #
-# The library is a read-only "external library" at /tank/data/photos: a copy of
-# the PC's ~/Pictures/photos, which stays the master. Immich never
-# writes there; its nightly library scan picks up what is synced in later.
-# Syncthing keeps it in step with the PC since 2026-11-07 (receive-only folder
-# "photos" in syncthing.nix); new files land 0644 with group immich (setgid dir).
+# The library is a read-only "external library" at /tank/data/photos. Since
+# 2026-11-08 that folder IS the photo archive's master: the PC's
+# ~/Pictures/photos was deleted after a checksum-verified copy here, and the
+# only other copy is the off-site backup (backup.nix). Immich never writes
+# there; its nightly library scan picks up files copied in by hand (kirill is
+# in group immich; dirs 2750 setgid, files 0640):
+#
+#   rsync -rltp --chmod=D2750,F0640 --chown=:immich <dir>/ nas:/tank/data/photos/<album>/
 #
 # Phone uploads land in /tank/data/immich/upload. tank is still a single disk,
 # so their only second copy is the off-site backup (backup.nix).
