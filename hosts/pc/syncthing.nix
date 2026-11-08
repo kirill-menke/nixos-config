@@ -105,6 +105,7 @@
                 "/school"
                 "/university"
                 "/finances"
+                "/job-applications"
                 # rebuildable
                 "(?d)node_modules"
                 "(?d)target"
