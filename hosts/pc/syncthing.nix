@@ -104,6 +104,7 @@
                 "/linda-stadter"
                 "/school"
                 "/university"
+                "/finances"
                 # rebuildable
                 "(?d)node_modules"
                 "(?d)target"
