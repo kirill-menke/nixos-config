@@ -18,6 +18,7 @@
     ./tv.nix # films on the LG C4: play, celluloid-auto, tv, the NAS library
     ./paperless.nix # the NAS's Paperless documents as files: /mnt/paperless
     ./photos.nix # the NAS's photo archive, read-write: /mnt/photos
+    ./nas.nix # the NAS's data pool, read-write: /mnt/nas
     ./immich-ml.nix # face/search AI for the NAS's Immich (too little RAM there)
     ./outlook-mcp.nix # one SSH tunnel to the NAS's shared Outlook server for omp
     ./syncthing.nix # the heidi folder, synced with the notebook
