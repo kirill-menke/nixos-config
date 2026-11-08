@@ -29,8 +29,9 @@
 # Where things live:
 #   /var/lib/vaultwarden           SQLite database, attachments, sends and the
 #                                  key that signs login tokens (NVMe)
-#   /tank/data/vaultwarden-backup  nightly copy at 23:00 UTC (HDD), one
-#                                  generation: a second copy on another disk
+#   /tank/data/backups/vaultwarden nightly copy at 23:00 UTC (HDD), one
+#                                  generation; older ones in the dataset's ZFS
+#                                  snapshots (snapshots.nix)
 # Restore: stop vaultwarden, delete db.sqlite3-wal and db.sqlite3-shm in
 # /var/lib/vaultwarden (a stale WAL would be replayed onto the restored
 # database), copy the backup's contents in, chown -R vaultwarden:vaultwarden,
@@ -52,7 +53,7 @@ let
   # Tailnet, via tailscale serve. Taken there: 443 = finance, 3000 = AdGuard,
   # 7443 = T3 Code, 8443 = ntfy, 9443 = vibereel-phone, 10443 = Paperless.
   httpsPort = 6443;
-  backupDir = "/tank/data/vaultwarden-backup";
+  backupDir = "/tank/data/backups/vaultwarden";
   serve = "${pkgs.tailscale}/bin/tailscale serve";
 
   # Read after the module's environment files, so its SIGNUPS_ALLOWED wins.

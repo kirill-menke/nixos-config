@@ -10,7 +10,9 @@
 #                               it over sftp (/mnt/photos, hosts/pc/photos.nix)
 #   tank/data/pc-documents      Syncthing copy of the PC's ~/Documents: a delete
 #                               on the PC lands here within seconds
-#   tank/data/paperless-export  nightly Paperless export (paperless.nix); the
+#   tank/data/backups           iPhone backup + Vaultwarden's nightly copy (one
+#                               generation by itself; snapshots add history)
+#   tank/data/backups/paperless nightly Paperless export (paperless.nix); the
 #                               live Paperless data is on the ext4 NVMe
 #
 # A snapshot costs nothing until data it holds is deleted or overwritten; that
@@ -35,6 +37,7 @@ in
   services.sanoid.datasets = {
     "tank/data/photos" = archive;
     "tank/data/pc-documents" = archive;
-    "tank/data/paperless-export" = archive;
+    "tank/data/backups" = archive;
+    "tank/data/backups/paperless" = archive;
   };
 }

@@ -59,9 +59,10 @@ in
     paths = [
       "/tank/data/pc-documents" # PC ~/Documents, Syncthing receive-only (syncthing.nix)
       "/tank/data/photos" # PC ~/Pictures/photos, Syncthing receive-only
-      "/tank/data/iphone-backup"
-      "/tank/data/paperless-export" # nightly 01:30 (paperless.nix)
-      "/tank/data/vaultwarden-backup" # nightly 23:00 UTC (vaultwarden.nix)
+      # iphone-15/, vaultwarden/ (nightly 23:00 UTC, vaultwarden.nix) and the
+      # paperless/ dataset (nightly 01:30, paperless.nix); restic crosses into
+      # the child dataset's mount.
+      "/tank/data/backups"
       "/tank/data/immich/backups" # Immich's own nightly DB dumps
       "/tank/data/immich/upload" # phone uploads: no other copy
       "/tank/data/immich/library"

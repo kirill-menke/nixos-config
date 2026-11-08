@@ -135,9 +135,17 @@
             mountpoint = "/tank/data/pc-documents";
             options.mountpoint = "legacy";
           };
-          "data/paperless-export" = {
+          # Everything that is a copy of something else, in one place. Made
+          # 2026-11-08: `zfs create` for backups, `zfs rename` of the former
+          # data/paperless-export, iphone-15 and vaultwarden copied in.
+          "data/backups" = {
             type = "zfs_fs";
-            mountpoint = "/tank/data/paperless-export";
+            mountpoint = "/tank/data/backups";
+            options.mountpoint = "legacy";
+          };
+          "data/backups/paperless" = {
+            type = "zfs_fs";
+            mountpoint = "/tank/data/backups/paperless";
             options.mountpoint = "legacy";
           };
         };

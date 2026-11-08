@@ -13,9 +13,10 @@
 # Where things live:
 #   /var/lib/paperless           SQLite database, search index, originals and
 #                                OCR'd archive PDFs (NVMe)
-#   /tank/data/paperless-export  nightly document_exporter dump (HDD): a second
+#   /tank/data/backups/paperless nightly document_exporter dump (HDD): a second
 #                                copy on another disk, and what
-#                                `paperless-manage document_importer` restores
+#                                `paperless-manage document_importer` restores;
+#                                readable: originals/<year>/<correspondent>/<title>.pdf
 #
 # Access:
 #   http://nas.local:28981                LAN (firewall opens it on enp2s0 only)
@@ -95,9 +96,21 @@ in
     };
 
     # Runs nightly at 01:30; stops the Paperless services for its duration.
+    # The module's defaults plus a browsable layout: files named like the
+    # library (PAPERLESS_FILENAME_FORMAT above), split into originals/,
+    # archive/ (OCR'd PDFs) and thumbnails/ instead of one flat folder.
+    # The importer reads the paths from manifest.json, so restores still work.
     exporter = {
       enable = true;
-      directory = "/tank/data/paperless-export";
+      directory = "/tank/data/backups/paperless";
+      settings = {
+        "no-progress-bar" = true;
+        "no-color" = true;
+        "compare-checksums" = true;
+        "delete" = true;
+        "use-filename-format" = true;
+        "use-folder-prefix" = true;
+      };
     };
   };
 
