@@ -58,7 +58,7 @@ in
     initialize = true;
     paths = [
       "/tank/data/pc-documents" # PC ~/Documents, Syncthing receive-only (syncthing.nix)
-      "/tank/data/photos" # PC ~/Pictures/photos, Syncthing receive-only
+      "/tank/data/photos" # the photo archive's master since 2026-11-08 (immich.nix)
       # iphone-15/, vaultwarden/ (nightly 23:00 UTC, vaultwarden.nix) and the
       # paperless/ dataset (nightly 01:30, paperless.nix); restic crosses into
       # the child dataset's mount.
@@ -67,8 +67,8 @@ in
       "/tank/data/immich/upload" # phone uploads: no other copy
       "/tank/data/immich/library"
       "/var/lib/radicale"
-      "/home/kirill/Documents/memory"
-      "/home/kirill/Documents/profile"
+      "/home/kirill/Documents/agents/memory"
+      "/home/kirill/Documents/agents/profile"
       staging
     ];
     exclude = [
