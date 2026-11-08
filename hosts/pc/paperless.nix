@@ -41,6 +41,10 @@
       "ServerAliveCountMax=3"
       "reconnect"
       "sftp_server=/run/current-system/sw/bin/paperless-view-sftp"
+      # File manager sidebar: gvfs hides mounts outside /media and /run/media
+      # unless asked to show them.
+      "x-gvfs-show"
+      "x-gvfs-name=Paperless"
     ];
   };
 

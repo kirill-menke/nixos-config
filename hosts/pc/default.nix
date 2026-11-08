@@ -58,10 +58,10 @@
   # on their own. 290 of them had accumulated here, pinning ~57 GiB that was
   # otherwise unreachable, on top of ~185 GiB of plain garbage.
   #
-  # Age, not count: nix.gc has no keep-newest-N option. 60d leaves roughly a
-  # month of rollback depth, which is far more than the "the last switch broke
-  # something" case this is actually for.
-  nix.gc.options = "--delete-older-than 60d";
+  # Age, not count: nix.gc has no keep-newest-N option. 30d is a month of
+  # rollback depth, far more than the "the last switch broke something" case
+  # this is for (60d kept ~105 GiB of old generations, 2026-11-08).
+  nix.gc.options = "--delete-older-than 30d";
 
   boot.loader.systemd-boot = {
     memtest86.enable = true;
@@ -92,7 +92,11 @@
   };
 
   # Docker — needed by Strix to run its pentest agents in a sandbox container.
-  virtualisation.docker.enable = true;
+  # Socket-activated: dockerd starts on the first `docker` call, not at boot.
+  virtualisation.docker = {
+    enable = true;
+    enableOnBoot = false;
+  };
 
   environment.sessionVariables.CLAUDE_CODE_MAX_OUTPUT_TOKENS = "128000";
 

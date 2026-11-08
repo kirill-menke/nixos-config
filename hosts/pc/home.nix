@@ -114,7 +114,8 @@ in
 
     # Utilities
     (lib.lowPrio sox) # audio recording for Claude Code voice mode; lowPrio: its bin/play must lose to our play launcher (./tv.nix)
-    rtorrent
+    testdisk # testdisk + photorec: recover partitions and deleted files
+    ookla-speedtest # `speedtest`: Ookla's official multi-connection CLI (unfree)
     # Markdown in the terminal, both driven by the `md` function in programs.zsh
     glow # styled + paged rendering, no image support
     mdcat # inline images via kitty's graphics protocol, but only unpaged
@@ -135,14 +136,6 @@ in
       hidePodcasts
       shuffle
     ];
-
-  home.file.".rtorrent.rc".text = ''
-    directory.default.set = ~/Downloads
-    ratio.enable =
-    ratio.min.set = 0
-    ratio.max.set = 0
-    ratio.upload.set = 0
-  '';
 
   services.hypridle.enable = false;
 

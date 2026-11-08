@@ -49,6 +49,10 @@
   # Log MCEs / hardware errors (CPU, memory controller, PCIe AER) persistently.
   hardware.rasdaemon.enable = true;
 
+  # Core dumps: 1 GiB at most (systemd's default is 4 GiB). A crash loop
+  # (nvidia-smi on every sysmon sample, Oct 20 - Nov 4 2026) filled all 4 GiB.
+  systemd.coredump.settings.Coredump.MaxUse = "1G";
+
   # If the kernel detects a lockup, panic instead of hanging silently: the
   # panic (with backtrace) lands in EFI pstore and is readable after reboot
   # under /sys/fs/pstore. kernel.panic=30 then reboots automatically.

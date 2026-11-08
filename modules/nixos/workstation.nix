@@ -27,6 +27,14 @@
     "nix-command"
     "flakes"
   ];
+  # Per-user profile and channel links in ~/.local/state/nix instead of
+  # ~/.nix-profile and ~/.nix-defexpr (moved by ../home/workstation.nix).
+  nix.settings.use-xdg-base-directories = true;
+
+  # Flakes only: no nix-channel, and no channel on NIX_PATH. The tmpfiles
+  # rules below delete the root channel left from the pre-flake install
+  # (nixos-25.05, which `<nixpkgs>` lookups still fell back to).
+  nix.channel.enable = false;
 
   # Binary cache for numtide/llm-agents.nix, so Claude Code, omp, Orca and
   # t3code download prebuilt instead of building from source (Electron never
@@ -100,27 +108,39 @@
   };
 
   programs.zsh.enable = true;
+  # Users whose Home Manager zsh lives in ~/.config/zsh (programs.zsh.dotDir in
+  # ../home/workstation.nix) get ZDOTDIR here, before any file in ~ is read;
+  # the others keep zsh's default, their home.
+  environment.etc."zshenv.local".text = ''
+    [[ -z $ZDOTDIR && -e $HOME/.config/zsh/.zshrc ]] && export ZDOTDIR=$HOME/.config/zsh
+  '';
 
   # Allow unfree packages
   nixpkgs.config.allowUnfree = true;
 
-  # Create mount directories for iphone
   systemd.tmpfiles.rules = [
+    # Mount directories for the iPhone
     "d /media/kirill 0755 kirill users -"
     "d /media/kirill/iphone 0755 kirill users -"
+    # The old root channel (nix.channel above); keeps it gone
+    "r /root/.nix-channels"
+    "R /root/.nix-defexpr/channels"
+    "r /nix/var/nix/profiles/per-user/root/channels"
+    "r /nix/var/nix/profiles/per-user/root/channels-*-link"
   ];
 
   environment.sessionVariables.NIXOS_OZONE_WL = "1";
 
-  # Double-clicked text files open in Apostrophe (installed in
-  # ../home/workstation.nix). System-wide /etc/xdg/mimeapps.list, so the user's
+  # Double-clicked text files open in GNOME Text Editor (installed in
+  # ../home/workstation.nix; replaced Apostrophe, whose PDF export pulled in
+  # 2.3 GiB of TeX Live). System-wide /etc/xdg/mimeapps.list, so the user's
   # own ~/.config/mimeapps.list stays writable by apps and still overrides it.
   # Types without a default of their own (.log, .csv, …) fall back to
   # text/plain.
   xdg.mime.defaultApplications = {
-    "text/plain" = "org.gnome.gitlab.somas.Apostrophe.desktop";
-    "text/markdown" = "org.gnome.gitlab.somas.Apostrophe.desktop";
-    "text/x-markdown" = "org.gnome.gitlab.somas.Apostrophe.desktop";
+    "text/plain" = "org.gnome.TextEditor.desktop";
+    "text/markdown" = "org.gnome.TextEditor.desktop";
+    "text/x-markdown" = "org.gnome.TextEditor.desktop";
   };
 
   environment.systemPackages = with pkgs; [

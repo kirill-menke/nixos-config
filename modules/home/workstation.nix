@@ -41,15 +41,13 @@ in
 
     # File management
     nautilus
-    apostrophe # opens .txt/.md on double-click (xdg.mime in ../nixos/workstation.nix)
+    gnome-text-editor # opens .txt/.md on double-click (xdg.mime in ../nixos/workstation.nix)
     duf
 
     # Utilities
     wget
     pavucontrol
-    nwg-look
     imagemagick
-    pulsemixer
     file
     wl-clipboard
     wtype
@@ -67,7 +65,15 @@ in
     # ./kirill.nix swaps in the Bedrock EU wrapper where Bedrock is Kirill's
     # default.
     package = lib.mkDefault inputs.llm-agents.packages.${system}.claude-code;
+    # ~/.config/claude instead of ~/.claude and ~/.claude.json: exported as
+    # CLAUDE_CONFIG_DIR, which Orca and omp follow too. omp then also counts
+    # Claude's user files as opted in; its skills, tools and subagents were
+    # the same with and without (2026-11-08).
+    configDir = "${config.xdg.configHome}/claude";
   };
+  # The same for user services and apps that systemd or D-Bus start; the T3
+  # Code server sets its own (hosts/pc/t3code.nix).
+  systemd.user.sessionVariables.CLAUDE_CONFIG_DIR = config.programs.claude-code.configDir;
   programs.awscli = {
     enable = true;
     # AWS config file is not managed by Home Manager to allow aws login to write credentials
@@ -102,12 +108,6 @@ in
       };
     };
   };
-  programs.thunderbird = {
-    enable = true;
-    profiles.default = {
-      isDefault = true;
-    };
-  };
 
   # Spotify + Spicetify (Catppuccin Mocha to match the rest of the system)
   programs.spicetify = {
@@ -136,17 +136,90 @@ in
 
   # Utilities
   programs.fastfetch.enable = true;
-  programs.htop.enable = true;
   programs.btop.enable = true;
+
+  # Everything in ~ sorted into the XDG base directories: settings in
+  # ~/.config, data in ~/.local/share, history in ~/.local/state, rebuildable
+  # files in ~/.cache. xdg.enable exports XDG_{CONFIG,DATA,STATE,CACHE}_HOME;
+  # the variables below move the apps that only follow their own variable.
+  # What stays in ~ can't be moved: the path is fixed in the app (.ssh, .steam,
+  # .pki, .vscode, .orca, .pi, .agents, .webos, .mozilla's native messaging
+  # hosts), or other state holds it as an absolute path (.omp, .t3: T3 Code's
+  # database records thousands of them).
+  xdg.enable = true;
+  home.sessionVariables = {
+    HISTFILE = "${config.xdg.stateHome}/bash/history"; # bash; zsh sets its own below
+    NODE_REPL_HISTORY = "${config.xdg.stateHome}/node_repl_history";
+    PYTHON_HISTORY = "${config.xdg.stateHome}/python_history";
+    WGETRC = "${config.xdg.configHome}/wget/wgetrc";
+    BUN_INSTALL_CACHE_DIR = "${config.xdg.cacheHome}/bun";
+  };
+  xdg.configFile."wget/wgetrc".text = ''
+    hsts-file = ${config.xdg.cacheHome}/wget-hsts
+  '';
+  # The files the variables above replace, moved on the next switch, before
+  # Home Manager links anything into the new places. Nothing is overwritten:
+  # what finds its new place taken stays, with a warning. A shell still open
+  # from before keeps writing its history to the old place until it exits, so
+  # histories are appended to the new file instead.
+  home.activation.moveToXdgDirs = lib.hm.dag.entryBetween [ "linkGeneration" ] [ "writeBoundary" ] ''
+    move() {
+      [ -e "$1" ] || return 0
+      run mkdir -p "$(dirname "$2")"
+      if [ -e "$2" ]; then
+        warnEcho "$1 stays: $2 exists already, merge them by hand"
+      else
+        run mv "$1" "$2"
+      fi
+    }
+    append() {
+      [ -e "$1" ] || return 0
+      run mkdir -p "$(dirname "$2")"
+      run sh -c 'cat "$1" >> "$2"' sh "$1" "$2" && run rm "$1"
+    }
+    append "$HOME/.histfile" "${config.xdg.stateHome}/zsh/history"
+    append "$HOME/.bash_history" "${config.xdg.stateHome}/bash/history"
+    append "$HOME/.node_repl_history" "${config.xdg.stateHome}/node_repl_history"
+    append "$HOME/.python_history" "${config.xdg.stateHome}/python_history"
+    append "$HOME/.z" "${config.xdg.stateHome}/z"
+    move "$HOME/.wget-hsts" "${config.xdg.cacheHome}/wget-hsts"
+    move "$HOME/.claude" "${config.programs.claude-code.configDir}"
+    move "$HOME/.claude.json" "${config.programs.claude-code.configDir}/.claude.json"
+    # Nix's own links, with use-xdg-base-directories (../nixos/workstation.nix):
+    # Nix recreates them in the new place by itself, pointing where the old
+    # ones did, so an old one whose new place exists is dropped.
+    for link in nix-profile:profile nix-defexpr:defexpr; do
+      old="$HOME/.''${link%%:*}" new="${config.xdg.stateHome}/nix/''${link#*:}"
+      if [ ! -e "$new" ] && [ ! -L "$new" ]; then
+        move "$old" "$new"
+      elif [ -e "$old" ] || [ -L "$old" ]; then
+        run rm -rf "$old"
+      fi
+    done
+    # Bun's download cache, still refilled by processes started before the
+    # variable existed; a cache, so dropped rather than merged
+    if [ -d "$HOME/.bun" ]; then
+      run rm -rf "$HOME/.bun/install/cache"
+      run rmdir --ignore-fail-on-non-empty "$HOME/.bun/install" "$HOME/.bun"
+    fi
+    run mkdir -p "${config.xdg.stateHome}/bash"
+    # Rebuilt on demand: zsh's completion dumps, z's lock, PulseAudio's old
+    # cookie path (~/.config/pulse/cookie is the one in use)
+    run rm -f "$HOME"/.zcompdump* "$HOME/.z.lock" "$HOME/.pulse-cookie"
+  '';
 
   programs.zsh = {
     enable = true;
+    # ~/.config/zsh instead of ~/.zshrc, ~/.zprofile and ~/.zshenv. zsh finds
+    # it through ZDOTDIR, set in /etc/zshenv.local (modules/nixos/workstation.nix),
+    # so no ~/.zshenv is needed to point there.
+    dotDir = "${config.xdg.configHome}/zsh";
     enableCompletion = true;
     autosuggestion.enable = true;
     syntaxHighlighting.enable = true;
 
     history = {
-      path = "${config.home.homeDirectory}/.histfile";
+      path = "${config.xdg.stateHome}/zsh/history";
       size = 1000;
       save = 1000;
     };
@@ -164,7 +237,7 @@ in
 
     completionInit = ''
       autoload -Uz compinit
-      compinit -d "$HOME/.cache/zsh/zcompdump-$ZSH_VERSION"
+      compinit -d "${config.xdg.cacheHome}/zsh/zcompdump-$ZSH_VERSION"
     '';
 
     shellAliases = {
@@ -182,8 +255,16 @@ in
         "sudo"
         "z"
       ];
+      # Read before oh-my-zsh.sh: its own compinit dump (same file as above,
+      # not ~/.zcompdump-*) and z's directory history (not ~/.z)
+      extraConfig = ''
+        ZSH_COMPDUMP="${config.xdg.cacheHome}/zsh/zcompdump-$ZSH_VERSION"
+        _Z_DATA="${config.xdg.stateHome}/z"
+      '';
     };
   };
+  # Only the stub that sources ~/.config/zsh/.zshenv; ZDOTDIR makes it unneeded.
+  home.file.".zshenv".enable = false;
 
   programs.kitty = {
     enable = true;
@@ -228,6 +309,8 @@ in
     package = pkgs.catppuccin-cursors.mochaDark;
     size = 24;
     gtk.enable = true;
+    # The theme lives in ~/.local/share/icons; ~/.icons is the pre-XDG copy.
+    dotIcons.enable = false;
   };
 
   # The icon theme gtk.iconTheme names: Papirus-Dark plus the tray icons of
@@ -258,6 +341,7 @@ in
     # GTK4/libadwaita apps (Nautilus) ignore gtk-theme-name: home-manager
     # imports the theme's gtk-4.0 stylesheet into ~/.config/gtk-4.0/gtk.css.
     gtk4.theme = config.gtk.theme;
+    gtk2.configLocation = "${config.xdg.configHome}/gtk-2.0/gtkrc";
   };
 
   # Tell libadwaita apps to use the dark variant.

@@ -20,12 +20,17 @@
 # Agents see kirill's own tools first, as in his login shell: `claude` on the
 # host's agentBackend (modules/home/kirill.nix), git, gh, node.
 #
-{ inputs, pkgs, ... }:
+{
+  config,
+  inputs,
+  pkgs,
+  ...
+}:
 let
   agents = inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system};
 
-  # The server alone: the wrapped `t3code` (the `t3` on kirill's PATH) puts
-  # llm-agents' provider CLIs ahead of PATH, which would bypass his `claude`.
+  # The server alone: kirill's own tools reach the agents through `path`
+  # below, so no wrapper may put other CLIs ahead of them.
   t3 = agents.t3code.unwrapped;
 
   port = 3773; # loopback
@@ -78,6 +83,9 @@ in
       "/run/current-system/sw"
     ];
 
+    # Claude Code's home (modules/home/workstation.nix), which a system unit
+    # doesn't get from kirill's session.
+    environment.CLAUDE_CONFIG_DIR = config.home-manager.users.kirill.programs.claude-code.configDir;
     serviceConfig = {
       User = "kirill";
       WorkingDirectory = "/home/kirill";
@@ -99,10 +107,15 @@ in
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
+      # `serve` failed at every boot with "unexpected state: NoState" while
+      # tailscaled was still connecting, so the tailnet link came 30 s late.
+      # `tailscale wait` returns once the node is up with its tailnet IP.
+      ExecStartPre = "${pkgs.tailscale}/bin/tailscale wait";
       ExecStart = "${serve} --bg --https=${toString httpsPort} http://127.0.0.1:${toString port}";
       ExecStop = "${serve} --https=${toString httpsPort} off";
-      # Fails while the node is logged out (before enrolment) or still
-      # connecting after boot.
+      # A logged-out node (before enrolment) never comes up: give up after
+      # 2 minutes and try again.
+      TimeoutStartSec = 120;
       Restart = "on-failure";
       RestartSec = 30;
     };

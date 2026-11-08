@@ -48,15 +48,24 @@ let
   # and web roles to the other backend for one run. Full subtrees, so the
   # shallow merge over config.yml still wins. disabledProviders keeps every
   # other role and subagent (scout's @smol, advisor, a role saved in
-  # config.yml) off the backend left behind.
+  # config.yml) off the backend left behind. Every bundled subagent except
+  # seance is pinned to Opus 5.5 without an effort suffix, so the `task`
+  # agent's `auto` thinking or the caller's `effort` (enableEffort) picks it.
+  # ~/.omp/agent/config.yml repeats the task block for plain `omp`.
   ompDirectOverlay = pkgs.writeText "omp-direct-overlay.yml" ''
     modelRoles:
       default: anthropic/claude-opus-5-5
       web: anthropic/claude-haiku-5-5
     task:
       agentModelOverrides:
-        task: anthropic/claude-opus-5-5:max
-      maxRecursionDepth: 4
+        task: anthropic/claude-opus-5-5
+        scout: anthropic/claude-opus-5-5
+        sonic: anthropic/claude-opus-5-5
+        reviewer: anthropic/claude-opus-5-5
+        security-reviewer: anthropic/claude-opus-5-5
+        code-simplifier: anthropic/claude-opus-5-5
+      enableEffort: true
+      maxRecursionDepth: 2
     disabledProviders:
       - amazon-bedrock
       - bedrock-mantle
@@ -67,8 +76,14 @@ let
       web: amazon-bedrock/eu.anthropic.claude-haiku-5-5
     task:
       agentModelOverrides:
-        task: amazon-bedrock/eu.anthropic.claude-opus-5-5:max
-      maxRecursionDepth: 4
+        task: amazon-bedrock/eu.anthropic.claude-opus-5-5
+        scout: amazon-bedrock/eu.anthropic.claude-opus-5-5
+        sonic: amazon-bedrock/eu.anthropic.claude-opus-5-5
+        reviewer: amazon-bedrock/eu.anthropic.claude-opus-5-5
+        security-reviewer: amazon-bedrock/eu.anthropic.claude-opus-5-5
+        code-simplifier: amazon-bedrock/eu.anthropic.claude-opus-5-5
+      enableEffort: true
+      maxRecursionDepth: 2
     disabledProviders:
       - anthropic
   '';
@@ -168,27 +183,10 @@ let
     '';
   });
 
-  # Android SDK for Orca's Android emulator pane, which shells out to adb,
-  # emulator and avdmanager from ~/Android/Sdk (linked below). From nixpkgs'
-  # androidenv, patched to run on NixOS, rather than Android Studio's SDK
-  # manager: Google's prebuilt emulator only runs inside Studio's FHS env, not
-  # when Orca starts it. Read-only, so SDK packages and system images are added
-  # here, not in Studio. AVDs live in ~/.android/avd (Studio's Device Manager).
-  androidSdk =
-    ((pkgs.androidenv.override { licenseAccepted = true; }).composeAndroidPackages {
-      # Not "latest": nixpkgs' newest platform (37.1) has no system images yet.
-      platformVersions = [
-        "36"
-        "37.0"
-      ];
-      includeEmulator = true;
-      includeSystemImages = true;
-      systemImageTypes = [ "google_apis_playstore" ];
-      abiVersions = [ "x86_64" ];
-    }).androidsdk;
-
   # Written by daily-wallpaper.sh (timer below), read by hyprpaper.
   wallpaper = "${config.home.homeDirectory}/.cache/hypr/daily-wallpaper.jpg";
+
+  t3code = agents.t3code.override { providerPackages = [ ]; };
 in
 {
   options.kirill = {
@@ -217,25 +215,32 @@ in
     home.username = "kirill";
     home.homeDirectory = "/home/kirill";
 
-    home.packages =
-      (with pkgs; [
-        krita
-        x2goclient
-        appimage-run
-      ])
-      ++ [
-        orca
-        (pkgs.android-studio.withSdk androidSdk)
-        # T3 Code (pingdotgg/t3code): GUI control surface for Claude Code/Codex/etc.
-        # `t3code-desktop` is the Electron app; `t3` the server + local web app.
-        agents.t3code-desktop
-        agents.t3code
-      ]
-      ++ agentCommands;
-
-    home.file."Android/Sdk".source = "${androidSdk}/libexec/android-sdk";
+    home.packages = [
+      pkgs.krita
+      orca
+      # T3 Code (pingdotgg/t3code): GUI control surface for Claude Code/omp.
+      # `t3code-desktop` is the Electron app; `t3` the server + local web app.
+      # Without llm-agents' provider CLIs (Codex, Cursor, OpenCode, Grok:
+      # 1.5 GiB nobody runs), which the wrapper would also put ahead of PATH.
+      t3code.desktop
+      t3code
+    ]
+    ++ agentCommands;
 
     programs.claude-code.package = lib.mkIf (cfg.agentBackend == "bedrock") claudeBedrock;
+
+    # omp in Orca's terminals: kitty images with Unicode placeholders. Orca
+    # isn't a terminal omp knows, so it probes and settles on SIXEL, and omp
+    # repaints the whole transcript now and then; a SIXEL image whose top has
+    # already scrolled off by then is cut to the rows still on screen, so
+    # images in the scrollback lost their top or vanished. Orca's image addon
+    # also renders kitty's placeholder cells, and those are text, so a repaint
+    # redraws the whole image wherever it lands.
+    programs.zsh.initContent = ''
+      if [[ $TERM_PROGRAM == Orca ]]; then
+        export PI_FORCE_IMAGE_PROTOCOL=kitty PI_KITTY_PLACEHOLDERS=1
+      fi
+    '';
 
     programs.git = {
       enable = true;
@@ -270,6 +275,14 @@ in
           }
         ];
       };
+    };
+
+    # A crash loop stops after 5 tries in 5 minutes instead of restarting
+    # every 10 s forever: a driver switch without a reboot (NVIDIA userspace
+    # newer than the loaded kernel module) crashed it 285 times on 2026-11-04.
+    systemd.user.services.hyprpaper.Unit = {
+      StartLimitIntervalSec = 300;
+      StartLimitBurst = 5;
     };
 
     # Daily wallpaper text overlay
