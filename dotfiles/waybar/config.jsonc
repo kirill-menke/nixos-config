@@ -99,7 +99,6 @@
             "class<(steam|steam_app_\\d+)>": "󰓓", // also Steam's games
             "class<(krita|org\\.kde\\.krita)>": "", // nf-linux-krita
             "class<(signal|signal-desktop)>": "󰍩", // md-message_text
-            "class<(thunderbird|org\\.mozilla\\.thunderbird)>": "", // nf-linux-thunderbird
             "class<org\\.pwmt\\.zathura>": "󰈦", // md-file_pdf_box
             "class<imv>": "󰋩", // md-image
             "class<org\\.pulseaudio\\.pavucontrol>": "󰙪", // md-tune_vertical

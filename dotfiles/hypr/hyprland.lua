@@ -290,6 +290,11 @@ hl.bind("XF86PowerOff", hl.dsp.exec_cmd("bar-popup power --key"))
 hl.bind(mainMod .. " + SHIFT + N", hl.dsp.exec_cmd("bar-popup close; swaync-client -t -sw"))
 hl.bind(mainMod .. " + N",      hl.dsp.exec_cmd("~/.config/hypr/scripts/notes.sh"))
 hl.bind(mainMod .. " + T",      hl.dsp.exec_cmd("~/.config/hypr/scripts/dict-lookup.sh"))
+-- The marked English text in German, in a card at the pointer (bar-popup's
+-- card_translate.py): a single word from the dict.cc data SUPER+T searches,
+-- anything longer from Claude Haiku. The key again closes it. A middle
+-- click opens it too, and SUPER + middle click its Explain mode (below).
+hl.bind(mainMod .. " + SHIFT + T", hl.dsp.exec_cmd("bar-popup translate"))
 hl.bind(mainMod .. " + P",      hl.dsp.window.pseudo())          -- dwindle
 -- The focus timer, as the pomodoro pill's middle click: starts it at the
 -- last lengths, pauses it, resumes it. Not on the lock screen.
@@ -355,6 +360,47 @@ hl.bind(mainMod .. " + SHIFT + M", hl.dsp.window.move({ workspace = "special:mag
 -- Move/resize windows with mainMod + LMB/RMB and dragging
 hl.bind(mainMod .. " + mouse:272", hl.dsp.window.drag(),   { mouse = true })
 hl.bind(mainMod .. " + mouse:273", hl.dsp.window.resize(), { mouse = true })
+
+-- Middle click: also the Translate card (as SUPER+SHIFT+T) for text marked
+-- in the last MARKED_FOR seconds, once per marking. Wayland only tells what
+-- was marked last, and apps keep that after the highlight is gone, so the
+-- primary-marked user service (modules/home/desktop.nix) notes when.
+-- non_consuming: the click still does its own thing, so a link opens and a
+-- terminal or editor pastes the marked text, card or not. A drag
+-- (autoscroll, Blender's orbit) opens no card, nor does the click that
+-- closes a card.
+local MARKED = (os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/primary-marked"
+local MARKED_FOR = 15 -- s
+local CLICK_SLOP = 8  -- px the pointer may move while the button is down
+local middle_down = nil -- where it went down, nil while a card was open
+hl.bind("mouse:274", function()
+    local card_open = #hl.get_layers({ namespace = "bar-popup" }) > 0
+    middle_down = not card_open and hl.get_cursor_pos() or nil
+end, { non_consuming = true })
+hl.bind("mouse:274", function()
+    local down, up = middle_down, hl.get_cursor_pos()
+    middle_down = nil
+    local file = io.open(MARKED)
+    if file == nil then return end
+    local at = tonumber(file:read("l"))
+    file:close()
+    os.remove(MARKED) -- a marking counts for one middle click
+    if at and os.time() - at <= MARKED_FOR and down and up
+            and math.abs(up.x - down.x) <= CLICK_SLOP
+            and math.abs(up.y - down.y) <= CLICK_SLOP then
+        hl.exec_cmd("bar-popup translate")
+    end
+end, { non_consuming = true, release = true })
+
+-- SUPER + middle click: the Explain card, what the marked term or phrase
+-- means, in German (card_translate.py). A gesture of its own, so for any
+-- marked text, however old, and the window never sees the click. It uses
+-- up the marking like a middle click, and on an open card it swaps the
+-- Translate card for it, or closes it again.
+hl.bind(mainMod .. " + mouse:274", function()
+    os.remove(MARKED)
+    hl.exec_cmd("bar-popup explain")
+end)
 
 -- Screenshots with Hyprshot
 hl.bind(mainMod .. " + S", hl.dsp.exec_cmd("hyprshot -m region -o ~/Pictures/Screenshots"))

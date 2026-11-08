@@ -1,5 +1,6 @@
 # The Hyprland desktop both hosts share: Waybar with its cards (bar-popup),
-# swaync, wofi, hyprlock/hypridle, evening mode, the SUPER+N/SUPER+T modals.
+# swaync, wofi, hyprlock/hypridle, evening mode, the SUPER+N/SUPER+T modals
+# and the SUPER+SHIFT+T translate card.
 # Each host gives its own part of the Hyprland config (screens, cursor,
 # host-only binds) in desktop.hyprlandHostConfig and keeps its own theme
 # (GTK, cursor), wallpaper and audio drop-ins. The system side is
@@ -27,6 +28,9 @@ let
     # worked out
     ps.icalendar
     ps.recurring-ical-events
+    # anthropic: the Translate card's Claude Haiku translations, streamed
+    # (the key lives in ~/.config/anthropic/api-key, outside the store)
+    ps.anthropic
   ]);
 
   # The bar's scripts, as the waybar-popups source and the bar's reload
@@ -39,7 +43,8 @@ let
 
   # The catppuccin waybar popups -- bar-popup for the cards (network,
   # bluetooth, sound, display, weather, calendar, pomodoro, power, battery,
-  # system, attention; one card_<name>.py each) -- wrapped so they find the
+  # system, attention, and translate, which SUPER+SHIFT+T opens at the
+  # pointer; one card_<name>.py each) -- wrapped so they find the
   # GTK/layer-shell GObject-Introspection typelibs at runtime.
   # nightlight is the evening-mode scheduler behind the display card (and
   # its own CLI); weather feeds the weather module and its card; osd handles
@@ -131,6 +136,18 @@ let
       pkgs.hyprland
     ];
     text = builtins.readFile (dotfiles + "/hypr/scripts/kb-layout-sync.sh");
+  };
+
+  # primary-marked: notes when text was last marked (a new primary
+  # selection), for the middle click that translates it (hyprland.lua);
+  # wl-paste --watch runs it from the unit below.
+  primary-marked = pkgs.writeShellApplication {
+    name = "primary-marked";
+    runtimeInputs = [
+      pkgs.coreutils
+      pkgs.gnugrep
+    ];
+    text = builtins.readFile (dotfiles + "/hypr/scripts/primary-marked.sh");
   };
 
   # Crash recovery for the bar and the notification daemon. home-manager's
@@ -281,6 +298,23 @@ in
       };
       Service = {
         ExecStart = "${waybar-popups}/bin/bar-popup-host --gapplication-service";
+        Restart = "on-failure";
+        RestartSec = 2;
+      };
+      Install.WantedBy = [ config.wayland.systemd.target ];
+    };
+
+    # The middle click's Translate card needs to know whether text was
+    # marked moments ago (hyprland.lua): Wayland tells only what was marked
+    # last, which an app keeps after its highlight is gone.
+    systemd.user.services.primary-marked = {
+      Unit = {
+        Description = "Note when text was last marked, for the middle-click translation";
+        After = [ config.wayland.systemd.target ];
+        PartOf = [ config.wayland.systemd.target ];
+      };
+      Service = {
+        ExecStart = "${pkgs.wl-clipboard}/bin/wl-paste --primary --watch ${primary-marked}/bin/primary-marked";
         Restart = "on-failure";
         RestartSec = 2;
       };

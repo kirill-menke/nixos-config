@@ -709,6 +709,11 @@ class Panel(Gtk.Box):
 
     title = ""
     css = ""
+    # bar-popup opens the card next to the pointer instead of under the
+    # bar: for a card about what is under it (the Translate and Explain
+    # cards). It places the card by the height it has once built, so such a
+    # card builds its content in __init__ already.
+    at_pointer = False
 
     def __init__(self, app):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)

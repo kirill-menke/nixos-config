@@ -4,8 +4,11 @@
 `bar-popup <name>` opens the card PANELS has under that name, just under
 the bar and centred on the click; `bar-popup <name> --key`, which the key
 bindings run, opens it at the bar's right end, as the pointer may be
-anywhere then. Asked for the card that is open, it closes it (a second
-click on the same module); for another card it swaps the card.
+anywhere then. A card about what is under the pointer (at_pointer: the
+Translate and Explain cards) opens next to the pointer instead, either
+way, placed by the height it opens with. Asked for the card that is open,
+it closes it (a second click on the same module, the key again); for
+another card it swaps the card.
 `bar-popup close` closes any card: the bell runs it as it opens swaync's
 panel, and opening a card closes that panel, so one of them shows at a
 time. Tab, Shift+Tab and the arrow keys move between the card's controls,
@@ -48,6 +51,7 @@ import card_pomodoro  # noqa: E402
 import card_power  # noqa: E402
 import card_sound  # noqa: E402
 import card_system  # noqa: E402
+import card_translate  # noqa: E402
 import card_weather  # noqa: E402
 import osd  # noqa: E402
 from cardkit import CARD_TOP, CARD_W, EDGE, run, run_async  # noqa: E402
@@ -64,6 +68,8 @@ PANELS = {
     "battery": card_battery.BatteryPanel,
     "system": card_system.SystemPanel,
     "attention": card_attention.AttentionPanel,
+    "translate": card_translate.TranslatePanel,
+    "explain": card_translate.ExplainPanel,
 }
 
 # The layer namespaces Hyprland's layer rules match (hyprland.lua). The
@@ -74,10 +80,19 @@ PANELS = {
 NAMESPACE = "bar-popup"
 BACKDROP = "bar-popup-backdrop"
 
-# The base stylesheet, then each card's own in PANELS order: of two rules
-# that match alike, the later one wins, so a card can restyle the base.
+# How far an at_pointer card keeps from the pointer, so the line marked
+# there stays in view, and the room under the card that has it open below
+# the pointer rather than above: the Translate card's text may still grow
+# by about that much, px.
+POINTER_GAP = 18
+GROW_ROOM = 60
+
+# The base stylesheet, then each card module's own in PANELS order (once
+# for a module with two cards): of two rules that match alike, the later
+# one wins, so a card can restyle the base.
 CSS = cardkit.CSS + b"".join(
-    sys.modules[panel.__module__].CSS for panel in PANELS.values())
+    sys.modules[module].CSS
+    for module in dict.fromkeys(p.__module__ for p in PANELS.values()))
 
 
 def cursor():
@@ -92,6 +107,15 @@ def cursor():
         return pos["x"], pos["y"]
     except (ValueError, KeyError, TypeError):
         return None
+
+
+def bar_height(geo):
+    """The room the bar takes at the top of the monitor at `geo`
+    (Hyprland's reserved area), 0 where Hyprland can't say."""
+    for mon in osd.hyprland("j/monitors") or []:
+        if (mon.get("x"), mon.get("y")) == (geo.x, geo.y):
+            return mon.get("reserved", [0, 0])[1]
+    return 0
 
 
 def monitor_at(point):
@@ -224,14 +248,23 @@ class PopupApp(Gtk.Application):
         # Centre the card on the click, kept inside the monitor, or, opened
         # by a key, put it at the bar's right end. Anchored to the top
         # left with no exclusive zone of its own, the surface sits in the
-        # space under the bar, and the margins place it there.
-        x = (point[0] - geo.x if point and not key
+        # space under the bar, and the margins place it there. A card
+        # about what is under the pointer goes beside it (_beside_pointer).
+        beside = card.at_pointer and point is not None
+        x = (point[0] - geo.x if point and (beside or not key)
              else geo.width) - CARD_W // 2
-        GtkLayerShell.set_anchor(win, GtkLayerShell.Edge.TOP, True)
         GtkLayerShell.set_anchor(win, GtkLayerShell.Edge.LEFT, True)
-        GtkLayerShell.set_margin(win, GtkLayerShell.Edge.TOP, CARD_TOP)
         GtkLayerShell.set_margin(win, GtkLayerShell.Edge.LEFT,
                                  max(EDGE, min(x, geo.width - CARD_W - EDGE)))
+        if beside:
+            # The card's height as it opens, which an at_pointer card knows
+            # by then (card_translate.py), decides above or below.
+            card.show_all()
+            height = card.get_preferred_height_for_width(CARD_W)[1]
+            self._beside_pointer(win, point[1] - geo.y, geo, height)
+        else:
+            GtkLayerShell.set_anchor(win, GtkLayerShell.Edge.TOP, True)
+            GtkLayerShell.set_margin(win, GtkLayerShell.Edge.TOP, CARD_TOP)
         # As big as the card, also when a rebuild makes it shorter: a
         # resizable window only ever grows.
         win.set_resizable(False)
@@ -249,6 +282,28 @@ class PopupApp(Gtk.Application):
         old, self.win, self.name = self.win, win, name
         if old is not None:
             old.destroy()
+
+    @staticmethod
+    def _beside_pointer(win, y, geo, height):
+        """An at_pointer card `height` px tall POINTER_GAP px below the
+        pointer, `y` px from the top of the monitor at `geo`, where it fits
+        with GROW_ROOM to spare or has more room than above; else as far
+        above it, under the bar. Anchored at its top either way, so a card
+        that grows or shrinks as its text comes in moves only its bottom
+        edge, never its content. An exclusive zone of -1 measures the
+        margins from the monitor's edges, as the pointer's y is, instead of
+        from under the bar."""
+        GtkLayerShell.set_exclusive_zone(win, -1)
+        GtkLayerShell.set_anchor(win, GtkLayerShell.Edge.TOP, True)
+        top_min = bar_height(geo) + CARD_TOP
+        below = int(y) + POINTER_GAP
+        room_below = geo.height - EDGE - below
+        room_above = int(y) - POINTER_GAP - top_min
+        if room_below >= height + GROW_ROOM or room_below >= room_above:
+            top = below
+        else:
+            top = max(top_min, int(y) - POINTER_GAP - height)
+        GtkLayerShell.set_margin(win, GtkLayerShell.Edge.TOP, top)
 
     def _layer(self, monitor, namespace):
         """A transparent window on the overlay layer of `monitor`."""
