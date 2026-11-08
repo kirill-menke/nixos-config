@@ -8,11 +8,12 @@
 # read-only NFS media mount (./tv.nix) stays NFS for streaming speed.
 #
 # It logs in as kirill, so the NAS's own permissions apply: immich/ and
-# vaultwarden-backup/ stay closed, the rest is reachable. pc-documents/ is the
+# backups/vaultwarden/ stay closed (they look empty, they are not), the rest
+# is reachable. pc-documents/ is the
 # receive side of the Syncthing copy of ~/Documents: edits made there are
 # overwritten by the PC, so change files in ~/Documents instead. Deletes are
 # undone from the ZFS snapshots under <dataset>/.zfs/snapshot/ where the
-# dataset has them (photos, pc-documents, paperless-export).
+# dataset has them (photos, pc-documents, backups, backups/paperless).
 #
 # Same mount options as ./photos.nix: mounted on first access and unmounted
 # after 10 idle minutes, so neither boot nor an idle desktop hangs on a NAS
