@@ -34,7 +34,7 @@
 #                                # IBANs/cards masked (DE••…••1234, ••••1234; reveal=True only to type
 #                                # one into the task's own form); ≤ 15 rows per call (limit=), ≤ 30 distinct rows
 #                                # per cell over all calls (limit=None: all); prints "N more … files=[…]";
-#                                # never grep ~/Documents/profile (sources/ and inbox/ are off limits)
+#                                # never grep ~/Documents/agents/profile (sources/ and inbox/ are off limits)
 #
 # Hang guard: text/observe/links/cards/url/title/page_json give up after
 # timeout=20 s, stop the page's script and raise TabStuck; that tab then fails
@@ -329,7 +329,7 @@
 #   the element (an autocomplete list), click/type/set_value(ref=N) find it
 #   again by its text if that is unique.
 # - The first time a kernel loads a site, its note from
-#   ~/Documents/memory/sites/<domain>.md is printed: read it. To read it
+#   ~/Documents/agents/memory/sites/<domain>.md is printed: read it. To read it
 #   before choosing the first URL: brief("otto.de") prints it together with the
 #   site's vault entries and its accounts-registry lines (one call for all three).
 # - Passkeys are switched off in every shop tab (Chrome's passkey dialog is

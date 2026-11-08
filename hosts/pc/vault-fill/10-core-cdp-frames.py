@@ -36,8 +36,9 @@ _MAGICK = "@magick@"  # ImageMagick 7: captcha() draws its montage with it,
 _FONT = "@font@"  # in this font (it finds none by itself)
 # What plain HTTP helpers (fetch_text, pdf_text without a tab) send as browser.
 _UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36"
-# The agents' own Chrome profile: logins made in it survive between sessions.
-_AGENT_PROFILE = _os.path.expanduser("~/.cache/omp-shop-chrome")
+# The agents' own Chrome profile: logins made in it survive between sessions,
+# so it lives in ~/.local/state, where no cache wipe reaches it.
+_AGENT_PROFILE = _os.path.expanduser("~/.local/state/omp-shop-chrome")
 # T3 Code starts sessions without XDG_RUNTIME_DIR; rbw would then look for its
 # agent, the one holding the unlocked key, somewhere else.
 _ENV = {**_os.environ, "XDG_RUNTIME_DIR": f"/run/user/{_os.getuid()}"}
@@ -49,7 +50,7 @@ _PLAIN_FIELDS = {"username", "user"}
 _SHOP_DISPLAY = 94
 _SHOP_PORT = 9394
 # Per-site notes agents keep; printed the first time a kernel visits the site.
-_SITE_NOTES = _os.path.expanduser("~/Documents/memory/sites")
+_SITE_NOTES = _os.path.expanduser("~/Documents/agents/memory/sites")
 _SITES_SEEN = globals().get("_SITES_SEEN") or set()  # kept across a re-%load
 # Screenshots and captcha montages this kernel made: {path: tab id}. close()
 # deletes its tab's, shop_close() and the kernel's exit all of them; never

@@ -727,7 +727,7 @@ def site_note(site):
         return ""
 
 
-_ACCOUNTS_MD = _os.path.expanduser("~/Documents/profile/registry/accounts.md")
+_ACCOUNTS_MD = _os.path.expanduser("~/Documents/agents/profile/registry/accounts.md")
 
 
 @_both
@@ -770,7 +770,7 @@ def brief(site):
     return text
 
 
-_PROFILE = _os.path.expanduser("~/Documents/profile")
+_PROFILE = _os.path.expanduser("~/Documents/agents/profile")
 # The profile's owner files: the only ones agents read (PROFILE.md: never
 # sources/ or inbox/, which hold raw material).
 _PROFILE_FILES = ("PROFILE.md", "open.md", "registry/*.md", "biography/*.md", "career/*.md")
@@ -800,7 +800,7 @@ def profile_grep(pattern, files=None, *, reveal=False, limit=15):
     open.md, registry/, biography/, career/) matching `pattern` (a regex,
     any case; a plain word works too): [{file, line_no, line}] (lines cut at
     400 chars). `files`: some of those globs only, e.g. ["registry/*.md"].
-    Never sources/ or inbox/ (use this, never grep ~/Documents/profile).
+    Never sources/ or inbox/ (use this, never grep ~/Documents/agents/profile).
     IBANs show as DE••…••1234 and card numbers as ••••1234 unless
     reveal=True (only to type the full value into the task's own form). At
     most `limit` lines, and all calls of one eval cell together at most 30
