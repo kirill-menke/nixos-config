@@ -115,7 +115,8 @@ let
   };
 
   # SUPER+N quick-notes modal (Textual TUI, launched in kitty by
-  # hypr/scripts/notes.sh); notes are kept in ~/Documents/notes.md.
+  # hypr/scripts/notes.sh); Work and Personal tabs, kept in
+  # ~/Documents/notes/{work,notes}.md.
   notes-modal = pkgs.writers.writePython3Bin "notes-modal" {
     libraries = [ pkgs.python3Packages.textual ];
   } (builtins.readFile (dotfiles + "/hypr/scripts/notes.py"));

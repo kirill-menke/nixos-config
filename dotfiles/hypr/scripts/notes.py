@@ -1,14 +1,19 @@
 """Quick notes modal (SUPER+N).
 
-A two-pane Textual app in a floating kitty window: on the left every note
-saved so far, grouped by day; on the right a text box for a new note. Enter
-saves it, one bullet per line (Shift+Enter starts another line). Notes live
-in a plain Markdown file, so they can be read and edited anywhere:
+A two-pane Textual app in a floating kitty window, with a Work and a Personal
+tab (Ctrl+PgDn/PgUp or a click switches): on the left every note of the tab,
+under its headings; on the right a text box for a new note. Enter saves it to
+the shown tab, one bullet per line under today's date (Shift+Enter starts
+another line). Each tab is a plain Markdown file in ~/Documents/notes
+(work.md, notes.md), so notes can be read and edited anywhere:
 
     ## 2026-10-11
 
     - look up how ZFS special vdevs work
       - and whether they need a mirror
+
+Any other heading (`# Open items`, `## Health`) is shown as a section title;
+deleting a section's last note drops its heading, as for a day.
 
 Text typed but not saved yet is kept as a draft and comes back the next time
 the app starts.
@@ -38,7 +43,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal
 from textual.message import Message
 from textual.theme import Theme
-from textual.widgets import Footer, OptionList, TextArea
+from textual.widgets import Footer, OptionList, Tab, Tabs, TextArea
 from textual.widgets.option_list import Option
 
 # SIGUSR1 would kill the app until on_mount installs the real handler, so a
@@ -46,8 +51,13 @@ from textual.widgets.option_list import Option
 early_show = []
 signal.signal(signal.SIGUSR1, lambda *_: early_show.append(True))
 
-NOTES = Path(
-    os.environ.get("NOTES_FILE", Path.home() / "Documents" / "notes.md")
+NOTES_DIR = Path(
+    os.environ.get("NOTES_DIR", Path.home() / "Documents" / "notes")
+)
+# (tab id, label, file in NOTES_DIR, placeholder of the entry box)
+TABS = (
+    ("work", "Work", "work.md", "Something for work…"),
+    ("personal", "Personal", "notes.md", "Something to remember…"),
 )
 DRAFT = Path(
     os.environ.get("NOTES_DRAFT")
@@ -65,7 +75,7 @@ SHOW = (
 HIDE = ("hl.dispatch(hl.dsp.window.move({ workspace = \"special:notes\","
         f" {WINDOW}, follow = false }}))")
 
-DAY = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})\s*$")
+HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*$")
 BULLET = re.compile(r"^(\s*)[-*+•]\s+(.*)$")
 
 MAUVE = "#cba6f7"
@@ -104,20 +114,42 @@ MOCHA = Theme(
 )
 
 
-# --- the Markdown file -----------------------------------------------------
+# --- the Markdown files ----------------------------------------------------
 
-def load():
-    try:
-        return NOTES.read_text().splitlines()
-    except FileNotFoundError:
-        return []
+class Notebook:
+    """One tab's file, its lines as last read or written, the mtime they
+    belong to, and the undo history."""
 
+    def __init__(self, path):
+        self.path = path
+        self.reload()
 
-def mtime():
-    try:
-        return NOTES.stat().st_mtime_ns
-    except FileNotFoundError:
-        return None
+    def read(self):
+        try:
+            return self.path.read_text().splitlines()
+        except FileNotFoundError:
+            return []
+
+    def stat(self):
+        try:
+            return self.path.stat().st_mtime_ns
+        except FileNotFoundError:
+            return None
+
+    def reload(self):
+        self.lines, self.mtime, self.history = self.read(), self.stat(), []
+
+    def stale(self):
+        return self.stat() != self.mtime
+
+    def save(self, lines):
+        """Resolved first, so a symlinked notes file stays a symlink."""
+        self.lines = lines
+        while lines and not lines[-1].strip():
+            lines = lines[:-1]
+        write_atomic(self.path.resolve(),
+                     "".join(f"{line}\n" for line in lines))
+        self.mtime = self.stat()
 
 
 def write_atomic(path, text):
@@ -127,13 +159,6 @@ def write_atomic(path, text):
     tmp = path.with_name(f".{path.name}.tmp")
     tmp.write_text(text)
     os.replace(tmp, path)
-
-
-def save(lines):
-    """Resolved first, so a symlinked notes file stays a symlink."""
-    while lines and not lines[-1].strip():
-        lines = lines[:-1]
-    write_atomic(NOTES.resolve(), "".join(f"{line}\n" for line in lines))
 
 
 def load_draft():
@@ -170,23 +195,27 @@ def append(lines, entry):
     out = list(lines)
     while out and not out[-1].strip():
         out.pop()
-    today = date.today().isoformat()
-    days = [m.group(1) for line in out if (m := DAY.match(line))]
-    if not days or days[-1] != today:
-        out += ([""] if out else []) + [f"## {today}", ""]
+    # Today's heading is reused only if it is the last one, so a note never
+    # lands in a section (`## Health`) that follows it.
+    heads = [line for line in out if HEADING.match(line)]
+    if not heads or heads[-1] != f"## {date.today().isoformat()}":
+        out += ([""] if out else []) + [f"## {date.today().isoformat()}", ""]
     return out + bullets
 
 
 def remove(lines, i):
-    """Return `lines` without line `i`, and without its day heading if that
-    was the day's last note."""
+    """Return `lines` without line `i`, and without its heading if that was
+    the section's last note. A section runs to the next heading of the same
+    or a higher level, so a heading with subsections is kept."""
     out = lines[:i] + lines[i + 1:]
-    heads = [j for j in range(i) if DAY.match(out[j])]
+    heads = [j for j in range(i) if HEADING.match(out[j])]
     if not heads:
         return out
     start = heads[-1]
+    level = len(HEADING.match(out[start]).group(1))
     end = next(
-        (j for j in range(start + 1, len(out)) if DAY.match(out[j])),
+        (j for j in range(start + 1, len(out))
+         if (m := HEADING.match(out[j])) and len(m.group(1)) <= level),
         len(out),
     )
     if not any(line.strip() for line in out[start + 1:end]):
@@ -210,16 +239,19 @@ def day_label(iso):
 
 
 def options(lines):
-    """One option per note; day headings and the gaps between days are
-    disabled options, so the cursor skips them. Option ids are line numbers
-    in the file."""
+    """One option per note; headings and the gaps before them are disabled
+    options, so the cursor skips them. Option ids are line numbers in the
+    file."""
     opts = []
+    after_heading = False
     for i, line in enumerate(lines):
-        if m := DAY.match(line):
-            if opts:
+        if m := HEADING.match(line):
+            if opts and not after_heading:
                 opts.append(Option(" ", disabled=True))
-            label = Text(day_label(m.group(1)), style=f"bold {MAUVE}")
+            label = Text(day_label(m.group(2)), style=f"bold {MAUVE}")
             opts.append(Option(label, disabled=True))
+            after_heading = True
+            continue
         elif m := BULLET.match(line):
             level = len(m.group(1)) // 2
             mark = "  " * level + ("•" if level == 0 else "◦") + " "
@@ -227,6 +259,9 @@ def options(lines):
                                        Text(m.group(2))), id=str(i)))
         elif line.strip():
             opts.append(Option(Text(line.strip(), style="dim"), id=str(i)))
+        else:
+            continue
+        after_heading = False
     return opts
 
 
@@ -287,6 +322,11 @@ class NoteList(OptionList):
             entry.insert(event.character)
 
 
+class NoteTabs(Tabs, can_focus=False):
+    """Work / Personal. Not focusable, so Tab keeps moving between the two
+    panes; switched by click or the App's Ctrl+PgDn/PgUp."""
+
+
 class Notes(App):
     ENABLE_COMMAND_PALETTE = False
     CSS = """
@@ -309,20 +349,29 @@ class Notes(App):
     """
     BINDINGS = [
         Binding("escape", "close", "Close", key_display="esc"),
+        Binding("ctrl+pagedown", "tab('next')", "Work/Personal",
+                key_display="^⇟", priority=True),
+        Binding("ctrl+pageup", "tab('previous')", show=False,
+                priority=True),
     ]
 
     def __init__(self, resident=False, hidden=False):
         super().__init__()
         self.resident, self.hidden = resident, hidden
-        self.lines = load()
-        self.mtime = mtime()
-        self.history = []
+        self.books = {tab: Notebook(NOTES_DIR / name)
+                      for tab, _, name, _ in TABS}
+        self.tab = TABS[0][0]
+
+    @property
+    def book(self):
+        return self.books[self.tab]
 
     def compose(self) -> ComposeResult:
+        yield NoteTabs(*(Tab(label, id=tab) for tab, label, _, _ in TABS))
         with Horizontal():
             yield NoteList()
             yield Entry(soft_wrap=True, tab_behavior="focus",
-                        placeholder="Something to look up later…")
+                        placeholder=TABS[0][3])
         yield Footer(compact=True, show_command_palette=False)
 
     def on_mount(self):
@@ -346,8 +395,8 @@ class Notes(App):
         """SUPER+N: catch up on edits made elsewhere (and on a new day for
         the Today/Yesterday labels) since the window was parked, then bring
         it to the current workspace."""
-        if mtime() != self.mtime:
-            self.lines, self.mtime, self.history = load(), mtime(), []
+        if self.book.stale():
+            self.book.reload()
             self.show(None)
         elif self.shown_on != date.today():
             self.show(None)
@@ -363,13 +412,31 @@ class Notes(App):
     def on_text_area_changed(self, event):
         save_draft(event.text_area.text)
 
+    def action_tab(self, direction):
+        tabs = self.query_one(NoteTabs)
+        if direction == "next":
+            tabs.action_next_tab()
+        else:
+            tabs.action_previous_tab()
+
+    def on_tabs_tab_activated(self, event):
+        """Show the other file; it may have been edited since last shown."""
+        if event.tab.id == self.tab:
+            return
+        self.tab = event.tab.id
+        self.query_one(Entry).placeholder = next(
+            hint for tab, _, _, hint in TABS if tab == self.tab)
+        if self.book.stale():
+            self.book.reload()
+        self.show(None)
+
     def show(self, highlight):
         """Rebuild the list; highlight option `highlight`, or the newest
         note when it is None."""
         self.shown_on = date.today()
         notes = self.query_one(NoteList)
         notes.clear_options()
-        opts = options(self.lines)
+        opts = options(self.book.lines)
         if not opts:
             empty = Text("No notes yet", style="dim italic")
             opts = [Option(empty, disabled=True)]
@@ -387,18 +454,16 @@ class Notes(App):
 
     def change(self, lines, highlight=None, undoable=True):
         if undoable:
-            self.history.append(self.lines)
-        self.lines = lines
-        save(lines)
-        self.mtime = mtime()
+            self.book.history.append(self.book.lines)
+        self.book.save(lines)
         self.show(highlight)
 
     def reload_if_stale(self):
         """True (after reloading) if the file changed behind our back, so a
         delete or undo would clobber that edit."""
-        if mtime() == self.mtime:
+        if not self.book.stale():
             return False
-        self.lines, self.mtime, self.history = load(), mtime(), []
+        self.book.reload()
         self.show(None)
         self.notify("Notes changed on disk; reloaded.", severity="warning")
         return True
@@ -407,7 +472,7 @@ class Notes(App):
         if not event.text.strip():
             return
         # Re-read first: appending is safe even if the file was edited.
-        self.change(append(load(), event.text))
+        self.change(append(self.book.read(), event.text))
         self.query_one(Entry).clear()
 
     def action_delete_note(self):
@@ -416,17 +481,17 @@ class Notes(App):
             return
         option = notes.get_option_at_index(notes.highlighted)
         if option.id is not None:
-            self.change(remove(self.lines, int(option.id)),
+            self.change(remove(self.book.lines, int(option.id)),
                         highlight=notes.highlighted)
 
     def action_undo(self):
-        if not self.history:
+        if not self.book.history:
             self.notify("Nothing to undo.", timeout=2)
         elif not self.reload_if_stale():
-            self.change(self.history.pop(), undoable=False)
+            self.change(self.book.history.pop(), undoable=False)
 
     def on_option_list_option_selected(self, event):
-        text = note_text(self.lines[int(event.option.id)])
+        text = note_text(self.book.lines[int(event.option.id)])
         # Own session, so the clipboard outlives this kitty window.
         subprocess.Popen(["wl-copy", "--", text], start_new_session=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
