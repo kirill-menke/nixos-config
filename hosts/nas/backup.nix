@@ -74,11 +74,15 @@ in
       ".stversions"
       ".stfolder"
     ];
-    # wacli writes its SQLite database all the time; back up a consistent copy.
+    # wacli and Memos write their SQLite databases all the time; back up a
+    # consistent copy.
     backupPrepareCommand = ''
       install -d -m 700 ${staging}
       if [ -e /var/lib/wacli/wacli.db ]; then
         ${pkgs.sqlite}/bin/sqlite3 /var/lib/wacli/wacli.db ".backup '${staging}/wacli.db'"
+      fi
+      if [ -e /var/lib/memos/memos_prod.db ]; then
+        ${pkgs.sqlite}/bin/sqlite3 /var/lib/memos/memos_prod.db ".backup '${staging}/memos.db'"
       fi
     '';
     pruneOpts = [

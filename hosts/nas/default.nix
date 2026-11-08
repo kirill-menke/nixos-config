@@ -31,6 +31,7 @@
     ./kirill-es.nix
     ./reel-api.nix
     ./media.nix
+    ./memos.nix
     ./options.nix
     ./orca.nix
     ./outlook.nix
@@ -233,6 +234,14 @@
     "nix-command"
     "flakes"
   ];
+
+  # Without this every deploy's generation stays forever: 160 had piled up by
+  # 2026-11-08 (15 GiB freed by a one-off 30-day GC). Same 30 days as the PC.
+  nix.gc = {
+    automatic = true;
+    dates = "weekly";
+    options = "--delete-older-than 30d";
+  };
 
   # Matches the nixpkgs this host is first installed from. Do not bump casually.
   system.stateVersion = "25.11";

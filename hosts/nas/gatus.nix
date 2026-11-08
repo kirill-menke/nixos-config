@@ -35,7 +35,8 @@ let
   port = 8095; # loopback
   # Tailnet, via tailscale serve. Taken there: 443 = finance, 1443 = Glance,
   # 2443 = Immich, 3000 = AdGuard, 5443 = Radicale, 6443 = Vaultwarden,
-  # 7443 = T3 Code, 8443 = ntfy, 9443 = vibereel-phone, 10443 = Paperless.
+  # 7443 = T3 Code, 8443 = ntfy, 9443 = vibereel-phone, 10443 = Paperless,
+  # 11443 = Memos.
   httpsPort = 4443;
   ntfyPort = 2586; # loopback bridge to ntfy's unix socket
   ntfySocket = "/run/ntfy-sh/ntfy.sock";
