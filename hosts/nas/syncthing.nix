@@ -81,6 +81,7 @@ in
             "!/i-have-adhd.json"
             "!/extensions/i-have-adhd-main-only.ts"
             "!/extensions/outlook-bridge.ts"
+            "!/extensions/memory-keeper.ts"
             "!/skills"
             "!/skills/**"
             "*"
