@@ -49,7 +49,11 @@
     ./vpn.nix
     ./wake-pc.nix
     ./whatsapp.nix
+    ../../modules/nixos/git-fetch.nix
   ];
+
+  # The NAS's own clones of the repos the PC also has; they meet via git.
+  gitFetch.dir = "%h/projects";
 
   #############################################################################
   # Boot / hardware

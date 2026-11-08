@@ -25,7 +25,10 @@
     ./vault.nix # Vaultwarden for agents: rbw and the vault fill tool
     ./calendar.nix # the NAS's calendars, synced for the bar's calendar card
     ../../modules/nixos/workstation.nix # what the PC shares with the laptop
+    ../../modules/nixos/git-fetch.nix # fetches the clones the NAS shares via git
   ];
+
+  gitFetch.dir = "%h/Documents/projects";
 
   home-manager.users.kirill = import ./home.nix;
 
