@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Quick notes modal (SUPER+N): notes-modal (notes.py, packaged in
 # modules/home/desktop.nix) in a floating kitty window. Notes are kept in
-# ~/Documents/notes.md.
+# Memos on the NAS (hosts/nas/memos.nix): Work tab = #work, Personal = rest.
 # The app stays running, parked on the hidden workspace special:notes, so it
 # opens at once: SIGUSR1 brings it to the current workspace (or focuses it
 # there), Esc parks it again. Only a first start, or one after SUPER+Q, pays

@@ -115,7 +115,8 @@ let
   };
 
   # SUPER+N quick-notes modal (Textual TUI, launched in kitty by
-  # hypr/scripts/notes.sh); notes are kept in ~/Documents/notes.md.
+  # hypr/scripts/notes.sh); Work and Personal tabs, kept in Memos on the NAS
+  # (hosts/nas/memos.nix), with a local copy for when it can't be reached.
   notes-modal = pkgs.writers.writePython3Bin "notes-modal" {
     libraries = [ pkgs.python3Packages.textual ];
   } (builtins.readFile (dotfiles + "/hypr/scripts/notes.py"));

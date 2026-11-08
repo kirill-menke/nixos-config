@@ -31,6 +31,7 @@
     ./kirill-es.nix
     ./reel-api.nix
     ./media.nix
+    ./memos.nix
     ./options.nix
     ./orca.nix
     ./outlook.nix
