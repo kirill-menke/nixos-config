@@ -26,6 +26,9 @@
       "retrans=3"
       "ro"
       "nfsvers=4.2"
+      # File manager sidebar entry.
+      "x-gvfs-show"
+      "x-gvfs-name=Media"
     ];
   };
 
