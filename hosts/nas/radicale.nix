@@ -1,6 +1,7 @@
 #
-# Radicale: a CalDAV server for Kirill's calendars. The iPhone's Calendar app
-# syncs with it as a CalDAV account, the PC through vdirsyncer
+# Radicale: a CalDAV and CardDAV server for Kirill's calendars and contacts.
+# The iPhone's Calendar app syncs with it as a CalDAV account, its Contacts
+# app as a CardDAV account, the PC (calendars only) through vdirsyncer
 # (hosts/pc/calendar.nix), whose copy the bar's calendar card shows. Every
 # client keeps a full copy, so this box being down stops sync, not access.
 #
@@ -10,7 +11,9 @@
 #
 # One account, kirill. Its password is sops calendar/password
 # (secrets/nas.yaml): the PC's vdirsyncer decrypts it with Kirill's age key,
-# and the phone got it once, inside the profile that set up its account.
+# and the phone got it once, inside the profiles that set up its accounts.
+# Contacts: the address book /kirill/kontakte/ (made 2026-11-08 with MKCOL;
+# a new one needs the same, clients do not create address books).
 # Calendars live under /kirill/: kalender and privat came over from iCloud on
 # 2026-11-04, out of the iPhone backup of 2026-11-03, alerts included. One
 # made on the phone reaches the PC at its next sync. The web page at /.web/
