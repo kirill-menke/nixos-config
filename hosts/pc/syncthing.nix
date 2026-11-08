@@ -1,9 +1,12 @@
 #
 # Syncthing, every folder versioned (the last 10 versions of each file kept):
-#   - ~/Documents/heidenhain/heidi, with the notebook
-#   - the agents' shared context with the NAS: ~/Documents/memory,
-#     ~/Documents/profile and ~/.omp/agent's AGENTS.md + ADHD bits; why and
+#   - the agents' shared context with the NAS: ~/Documents/agents/memory,
+#     ~/Documents/agents/profile and ~/.omp/agent's AGENTS.md + ADHD bits; why and
 #     what is left out is in hosts/nas/syncthing.nix
+#   - a one-way copy to the NAS for its off-site backup (hosts/nas/backup.nix):
+#     ~/Documents (without the folders above, Heidenhain's code and build
+#     output); unversioned, restic keeps the history. Photos are not here:
+#     since 2026-11-08 the NAS's /tank/data/photos is their only master
 #
 { config, ... }:
 
@@ -36,9 +39,6 @@
         overrideFolders = true;
         settings = {
           devices = {
-            notebook = {
-              id = "VEN3IQO-TTXDSXA-6NLXJAW-7FUBOVQ-LPEXAJH-NRU6RNJ-MBN3P6R-MD77IAI";
-            };
             # Dialled over the tailnet only: the NAS has global discovery and
             # relays off, and the profile should not cross anything else.
             nas = {
@@ -48,7 +48,7 @@
           };
           folders = {
             memory = {
-              path = "${config.home.homeDirectory}/Documents/memory";
+              path = "${config.home.homeDirectory}/Documents/agents/memory";
               devices = [ "nas" ];
               versioning = {
                 type = "simple";
@@ -56,7 +56,7 @@
               };
             };
             profile = {
-              path = "${config.home.homeDirectory}/Documents/profile";
+              path = "${config.home.homeDirectory}/Documents/agents/profile";
               devices = [ "nas" ];
               versioning = {
                 type = "simple";
@@ -81,13 +81,37 @@
                 params.keep = "10";
               };
             };
-            "heidi" = {
-              path = "${config.home.homeDirectory}/Documents/heidenhain/heidi";
-              devices = [ "notebook" ];
-              versioning = {
-                type = "simple";
-                params.keep = "10";
-              };
+            # Send-only: nothing the NAS does can change the PC's files.
+            pc-documents = {
+              path = "${config.home.homeDirectory}/Documents";
+              type = "sendonly";
+              devices = [ "nas" ];
+              ignorePatterns = [
+                # their own two-way folders above
+                "/agents/memory"
+                "/agents/profile"
+                # Heidenhain's code (CodeCommit clones + their Orca
+                # worktrees) stays off a private cloud
+                "/heidenhain"
+                "/projects/heidi"
+                "/projects/oriana"
+                "/projects/dev-platform"
+                "/projects/orca/projects/dev-platform"
+                "/projects/orca/workspaces/heidi"
+                "/projects/orca/workspaces/oriana"
+                "/projects/orca/workspaces/dev-platform"
+                # archived on the NAS (+ restic), may be freed from the PC
+                "/linda-stadter"
+                "/school"
+                "/university"
+                # rebuildable
+                "(?d)node_modules"
+                "(?d)target"
+                "(?d).venv"
+                "(?d)__pycache__"
+                "(?d).direnv"
+                "(?d)result"
+              ];
             };
           };
         };
