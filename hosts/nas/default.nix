@@ -39,6 +39,7 @@
     ./reap-stalled.nix
     ./scans.nix
     ./secrets.nix
+    ./snapshots.nix
     ./subtitles.nix
     ./syncthing.nix
     ./t3code.nix

@@ -122,6 +122,24 @@
               "com.sun:auto-snapshot" = "true";
             };
           };
+          # Own datasets so they can be snapshotted without the media library
+          # (snapshots.nix). Created by hand on 2026-11-08 on the existing pool
+          # (`zfs create -o mountpoint=legacy tank/data/<name>`), data moved in.
+          "data/photos" = {
+            type = "zfs_fs";
+            mountpoint = "/tank/data/photos";
+            options.mountpoint = "legacy";
+          };
+          "data/pc-documents" = {
+            type = "zfs_fs";
+            mountpoint = "/tank/data/pc-documents";
+            options.mountpoint = "legacy";
+          };
+          "data/paperless-export" = {
+            type = "zfs_fs";
+            mountpoint = "/tank/data/paperless-export";
+            options.mountpoint = "legacy";
+          };
         };
       };
     };
