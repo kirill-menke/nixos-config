@@ -44,11 +44,19 @@
         [[ -z "$PUSH" || "$PUSH" =~ ^[Yy]$ ]] && git push
       '')
 
-      # CodeCommit PR creation (aliased as ccpr). ./create-pr.sh is kept
-      # byte-identical with vibe's /etc/nixos/create-pr.sh: edit both.
+      # CodeCommit PR creation (aliased as ccpr). The script itself is heidi's
+      # buildspecs/scripts/create-pr.sh, run as it stands on origin/dev (see its
+      # header), so a change merged there reaches every machine without a rebuild.
       (pkgs.writeShellScriptBin "create-pr" ''
         export PATH=${pkgs.jq}/bin:$PATH
-        ${builtins.readFile ./create-pr.sh}
+        git fetch -q origin dev || exit 1
+        f=$(mktemp) || exit 1
+        trap 'rm -f "$f"' EXIT
+        if ! git show origin/dev:buildspecs/scripts/create-pr.sh >"$f" 2>/dev/null; then
+          echo "create-pr: origin/dev has no buildspecs/scripts/create-pr.sh (not a heidi checkout?)" >&2
+          exit 1
+        fi
+        bash "$f" "$@"
       '')
 
       # Merge the current worktree's branch into a local branch checked out in
