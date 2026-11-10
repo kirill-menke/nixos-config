@@ -185,11 +185,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1793834083,
-        "narHash": "sha256-OATPWYj4j9n7YEuNBBhhe+FWiFnt941WPfvYnwedstY=",
+        "lastModified": 1794342874,
+        "narHash": "sha256-UzRcBA4lQGLCvB/E0Bop590nhjWf+nZOW+QS1VfKZDs=",
         "ref": "main",
-        "rev": "7212b8fa7bc91d5133192c543cbee9bdf428c278",
-        "revCount": 120,
+        "rev": "3cc4ecf674881ee9e75e738d6b5313f15bd6ba02",
+        "revCount": 125,
         "type": "git",
         "url": "file:///home/kirill/Documents/projects/kirill.es"
       },
