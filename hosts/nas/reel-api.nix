@@ -61,6 +61,15 @@ in
     # host its WebUI answers at the namespace address, not loopback.
     qbittorrentUrl = "http://192.168.15.1:8080";
 
+    # qBittorrent's WebUI refuses every caller without a credential (arr.nix,
+    # "Who uses what"). reel-api sends the API key reap-stalled sends too, the
+    # hand-provisioned one in secretsDir; the module hands it over as a systemd
+    # credential. It was a line in reel-api.env until the move to sops dropped
+    # it (2026-10-20): from then on every qBittorrent call answered 403, so
+    # Activity had no live progress and no download could be watched while it
+    # came in.
+    qbittorrentApiKeyFile = "${config.nas.secretsDir}/qbittorrent-api-key";
+
     # PROWLARR_API_KEY=<key from /var/lib/private/prowlarr/config.xml>, from
     # sops (nas/reel-api-env in secrets/nas.yaml). Without it the unit fails to
     # start -- deliberate and visible.

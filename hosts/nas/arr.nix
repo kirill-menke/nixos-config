@@ -313,7 +313,8 @@ in
         #
         # Who uses what (secrets in secretsDir, provisioned by hand):
         #   * Sonarr, Radarr (and Prowlarr, if it has qBittorrent as a
-        #     download client) and reap-stalled: the API key
+        #     download client), reap-stalled and reel-api (reel-api.nix,
+        #     qbittorrentApiKeyFile): the API key
         #     (qbittorrent-api-key, "qbt_" + 28 letters/digits), sent as
         #     `Authorization: Bearer`. Stateless, never expires, and exempt
         #     from the failed-login IP ban -- which matters, since all host
@@ -322,14 +323,9 @@ in
         #     with Username/Password empty (they refuse both at once).
         #   * The browser over the tailnet: user `admin` + the password
         #     (qbittorrent-webui-password, one line).
-        #   * reel-api: the password too -- it cannot send a Bearer header,
-        #     but its httpx client takes Basic auth from the URL and keeps
-        #     the session cookie. reel-api.env carries the override, which
-        #     beats the module's Environment= QBIT_URL:
-        #       QBIT_URL=http://admin:<password>@192.168.15.1:8080
-        #     Do NOT use QBIT_USERNAME/QBIT_PASSWORD: that logs in once and
-        #     never again, so it breaks at the first session expiry or
-        #     qBittorrent restart.
+        #     reel-api must not use it: QBIT_USERNAME/QBIT_PASSWORD log in
+        #     once and never again, so they break at the first session
+        #     expiry or qBittorrent restart.
         #   * proton-natpmp (vpn.nix) runs inside the namespace and talks to
         #     127.0.0.1, covered by LocalHostAuth = false. Only qBittorrent
         #     and that loop live in the namespace, so loopback there is not a
