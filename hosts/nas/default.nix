@@ -20,6 +20,7 @@
     inputs.disko.nixosModules.disko
 
     ./adguard.nix
+    ./auto-apply.nix
     ./dns-fallback.nix
     ./backup.nix
     ./arr.nix
