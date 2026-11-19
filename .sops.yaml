@@ -1,0 +1,12 @@
+# sops-nix recipients (public keys only). kirill: personal age key on the PC
+# (~/.config/sops/age/keys.txt, backed up on the recovery sheet); nas: derived
+# from the NAS SSH host key (ssh-to-age).
+keys:
+  - &kirill age1acs7x95a5jf0e50rjlr7zyehd4ekkxrqc3mcu0wwje93986369sqrv677z
+  - &nas age1upe2gxeylh36wyua8frklfxkk8uzvkadwdtetv527psa6nwmj4aslateer
+creation_rules:
+  - path_regex: secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+          - *kirill
+          - *nas

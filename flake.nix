@@ -1,0 +1,105 @@
+{
+  description = "NixOS configuration with Home Manager";
+
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    spicetify-nix = {
+      url = "github:Gerg-L/spicetify-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    # Claude Code on every host, plus Orca IDE. Both are bot-updated daily and
+    # served from cache.numtide.com (substituter on the PC and the laptop; the
+    # NAS is built on the PC); Orca is not in nixpkgs and ships no flake of
+    # its own. No `inputs.nixpkgs.follows` on purpose: the cache only has
+    # builds against llm-agents' own nixpkgs (`llm-agents/nixpkgs` in the lock).
+    llm-agents.url = "github:numtide/llm-agents.nix";
+
+    # Firefox add-ons of both desktops (modules/home/workstation.nix).
+    firefox-addons = {
+      url = "gitlab:rycee/nur-expressions?dir=pkgs/firefox-addons";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    home-manager = {
+      url = "github:nix-community/home-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    # Declarative disk partitioning for the NAS. nixos-anywhere runs this at
+    # install time to partition, format and mount before installing.
+    disko = {
+      url = "github:nix-community/disko";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    # VibeReel's backend (reel-api, Sonarr/Radarr/Prowlarr/qBittorrent façade), in the vibe-reel repo.
+    # path: to the subdirectory, not ?dir=, so the store copy skips the app's node_modules.
+    # Its NixOS module builds the package against this flake's nixpkgs.
+    reel-api = {
+      url = "path:/home/kirill/Documents/projects/vibe-reel/backend";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    # Network-namespace VPN confinement for the NAS: puts qBittorrent behind
+    # ProtonVPN (see hosts/nas/vpn.nix). No nixpkgs input to follow.
+    vpn-confinement.url = "github:Maroka-chan/VPN-Confinement";
+
+    # Kirifin, the self-hosted finance app (private repo). Local git checkout, so
+    # only committed files of the given branch are built.
+    # sops-nix: decrypts secrets/*.yaml on the host at activation (age via the
+    # SSH host key). Only encrypted files are in this repo.
+    sops-nix = {
+      url = "github:Mic92/sops-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    # microVM host module (microvm.nixosModules.host), for the kirill.es guests.
+    microvm = {
+      url = "github:microvm-nix/microvm.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    # kirill.es (private repo): the local checkout, committed files of main
+    # only, never the working tree (hosts/nas/kirill-es.nix). Any update of this
+    # input pins whatever local main holds. Deploy: commit to main (if it
+    # moved on GitHub, `git fetch origin main:main` there first: this reads
+    # the local branch), then `nix flake update kirill-es` and `rebuild-nas`.
+    kirill-es = {
+      url = "git+file:///home/kirill/Documents/projects/kirill.es?ref=main";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    kirifin = {
+      url = "git+file:///home/kirill/Documents/projects/kirifin?ref=main";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+
+  outputs =
+    { nixpkgs, ... }@inputs:
+    let
+      system = "x86_64-linux";
+
+      # One host per directory under ./hosts. Each host's default.nix imports
+      # the flake modules it needs itself (home-manager, disko, ...), so the
+      # desktop and the headless NAS share only the inputs, not configuration.
+      mkHost =
+        path:
+        nixpkgs.lib.nixosSystem {
+          inherit system;
+          specialArgs = { inherit inputs; };
+          modules = [ path ];
+        };
+    in
+    {
+      nixosConfigurations = {
+        pc = mkHost ./hosts/pc;
+        laptop = mkHost ./hosts/laptop;
+        nas = mkHost ./hosts/nas;
+      };
+
+      # `nix fmt` formats the whole tree with the official formatter.
+      formatter.${system} = nixpkgs.legacyPackages.${system}.nixfmt-tree;
+    };
+}

@@ -1,0 +1,250 @@
+#
+# TerraMaster F4-425 Plus -- headless NAS.
+#
+# Intel N150, 16 GB DDR5, 2x Realtek RTL8126 5GbE, 4x SATA bays, 3x M.2 NVMe.
+# No BMC/IPMI: once installed there is no console unless a monitor is physically
+# attached, so anything that could block boot on the network is avoided here.
+#
+# Installed with nixos-anywhere; disk layout lives in ./disko.nix.
+#
+{
+  config,
+  inputs,
+  lib,
+  pkgs,
+  ...
+}:
+{
+  imports = [
+    # nixos-anywhere runs disko at install time to partition and format.
+    inputs.disko.nixosModules.disko
+
+    ./adguard.nix
+    ./auto-apply.nix
+    ./dns-fallback.nix
+    ./backup.nix
+    ./claude-usage.nix
+    ./arr.nix
+    ./disko.nix
+    ./finance.nix
+    ./gatus.nix
+    ./glance.nix
+    ./immich.nix
+    ./kirill-es.nix
+    ./reel-api.nix
+    ./media.nix
+    ./memos.nix
+    ./options.nix
+    ./orca.nix
+    ./outlook.nix
+    ./paperless.nix
+    ./radicale.nix
+    ./reap-stalled.nix
+    ./scans.nix
+    ./secrets.nix
+    ./snapshots.nix
+    ./subtitles.nix
+    ./syncthing.nix
+    ./t3code.nix
+    ./tailscale.nix
+    ./vaultwarden.nix
+    ./vibereel-phone.nix
+    ./vibereel-web.nix
+    ./vpn.nix
+    ./wake-pc.nix
+    ./whatsapp.nix
+    ../../modules/nixos/git-fetch.nix
+  ];
+
+  # The NAS's own clones of the repos the PC also has; they meet via git.
+  gitFetch.dir = "%h/projects";
+
+  #############################################################################
+  # Boot / hardware
+  #############################################################################
+
+  boot.loader.systemd-boot.enable = true;
+  boot.loader.efi.canTouchEfiVariables = true;
+
+  # Enough to find the NVMe root and the SATA disks in early boot. Both SATA
+  # controllers (Intel Alder Lake-N AHCI, ASMedia ASM1061/1062) use ahci.
+  boot.initrd.availableKernelModules = [
+    "xhci_pci"
+    "ahci"
+    "nvme"
+    "usbhid"
+    "usb_storage"
+    "sd_mod"
+  ];
+  boot.kernelModules = [ "kvm-intel" ];
+
+  hardware.enableRedistributableFirmware = true;
+
+  # Explicit rather than inherited: this flake's nixpkgs gives linuxPackages
+  # 6.18.39, and ZFS 2.4.3 builds against it (verified: the resolved module is
+  # zfs-kernel-2.4.3-6.18.39 with meta.broken = false). linuxPackages_latest is
+  # NOT supported by ZFS -- pinning the default here stops a future nixpkgs bump
+  # from silently moving this host onto a kernel whose ZFS module won't build.
+  # Re-check this after any `nix flake update`.
+  boot.kernelPackages = pkgs.linuxPackages;
+
+  # 7.5 GiB RAM, no swap partition, and many resident services (microVMs,
+  # T3 Code's agents, the *arr apps, Jellyfin, Paperless OCR). Compressed swap
+  # in RAM lets idle memory be squeezed instead of the box thrashing its page
+  # cache under a memory burst (2026-10-31: two Paperless OCR workers without
+  # swap stalled SSH and AdGuard DNS for ~15 minutes).
+  zramSwap = {
+    enable = true;
+    algorithm = "zstd";
+    memoryPercent = 50;
+  };
+
+  #############################################################################
+  # ZFS
+  #############################################################################
+
+  boot.supportedFilesystems.zfs = true;
+
+  # Required by the ZFS module (it asserts on null). Must be unique per host and
+  # stable forever -- it is what stops two machines importing the same pool.
+  # Generated once; do not change it after the pool exists.
+  networking.hostId = "a3f21c07";
+
+  # Root is ext4 on the NVMe, so no pool needs importing to reach the rootfs.
+  # Leaving this false means a dirty pool is never force-imported behind your
+  # back, which is the safe default.
+  boot.zfs.forceImportRoot = false;
+
+  # Monthly scrub. On a single-disk vdev this can only *detect* corruption, not
+  # repair it -- there is no second copy to heal from until the mirror exists.
+  # Still worth it: you want to know.
+  services.zfs.autoScrub = {
+    enable = true;
+    interval = "monthly";
+  };
+
+  # Mail-less ZED: log events to the journal. Without a configured MTA the mail
+  # path would just fail silently, so it is explicitly off.
+  services.zfs.zed.enableMail = false;
+
+  #############################################################################
+  # Networking
+  #############################################################################
+
+  networking.hostName = "nas";
+
+  # Historically DHCP on whichever port is patched; since this box became the
+  # LAN's DHCP server (adguard.nix), enp2s0 is static 192.168.0.175 and this
+  # default only still applies to the unpatched enp3s0.
+  networking.useDHCP = lib.mkDefault true;
+
+  # Announce as nas.local, so the box is reachable without consulting DHCP
+  # leases. (The desktop resolves this via its own avahi + nssmdns4.)
+  services.avahi = {
+    enable = true;
+    nssmdns4 = true;
+    openFirewall = true;
+    publish = {
+      enable = true;
+      addresses = true;
+      workstation = true;
+    };
+  };
+
+  # Headless box with no BMC: a boot that blocks waiting for the network is
+  # unrecoverable without physically attaching a monitor.
+  systemd.network.wait-online.enable = false;
+
+  networking.firewall = {
+    enable = true;
+    allowedTCPPorts = [ 22 ];
+  };
+
+  #############################################################################
+  # Access
+  #############################################################################
+
+  services.openssh = {
+    enable = true;
+    settings = {
+      # Root does not log in over SSH at all; admin access is kirill + sudo
+      # (deploys use --target-host kirill@... --use-remote-sudo). Console
+      # login as root stays possible via hashedPasswordFile below.
+      PermitRootLogin = "no";
+      PasswordAuthentication = false;
+    };
+  };
+
+  users.users.kirill = {
+    isNormalUser = true;
+    description = "Kirill Menke";
+    extraGroups = [ "wheel" ];
+    openssh.authorizedKeys.keys = [
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOzNg1J0OHBLfMX2OnvNNhXFTqqwVR+lpVh+uSYZSXY kirill@pc"
+    ];
+  };
+
+  # No password is set for kirill (key-only login), so sudo could never be used
+  # without this. Single-admin headless box; the SSH key is the real boundary.
+  security.sudo.wheelNeedsPassword = false;
+
+  # Deploys push locally-built, unsigned store paths over SSH; the daemon only
+  # accepts those from trusted users, which by default is root alone. Trusting
+  # kirill grants nothing new -- passwordless wheel above is already
+  # root-equivalent.
+  nix.settings.trusted-users = [ "kirill" ];
+
+  # Console fallback if the network ever fails to come up and you attach a
+  # monitor.
+  #
+  # The hash comes from sops rather than inline here, because this repo is
+  # public. A sha-512 crypt hash is not a secret you can publish safely: at the
+  # default 5000 rounds it is cheap to attack offline on a GPU, and anything
+  # pushed to GitHub is scraped and cached permanently, so deleting it later
+  # does not undo the exposure.
+  #
+  # To change it: `mkpasswd -m sha-512`, then paste into nas/root-hash via
+  # `sops secrets/nas.yaml`. neededForUsers decrypts it to
+  # /run/secrets-for-users before users are created, which ordinary secrets
+  # are not. SSH key auth does not depend on it either way.
+  sops.secrets."nas/root-hash" = {
+    sopsFile = ../../secrets/nas.yaml;
+    neededForUsers = true;
+  };
+  users.users.root.hashedPasswordFile = config.sops.secrets."nas/root-hash".path;
+
+  #############################################################################
+  # Base tooling
+  #############################################################################
+
+  environment.systemPackages = with pkgs; [
+    git
+    vim
+    tmux
+    htop
+    btop
+    smartmontools
+    nvme-cli
+    ethtool
+    pciutils
+    rsync
+    curl
+    ffmpeg-headless
+  ];
+
+  nix.settings.experimental-features = [
+    "nix-command"
+    "flakes"
+  ];
+
+  # Without this every deploy's generation stays forever: 160 had piled up by
+  # 2026-11-08 (15 GiB freed by a one-off 30-day GC). Same 30 days as the PC.
+  nix.gc = {
+    automatic = true;
+    dates = "weekly";
+    options = "--delete-older-than 30d";
+  };
+
+  # Matches the nixpkgs this host is first installed from. Do not bump casually.
+  system.stateVersion = "25.11";
+}
