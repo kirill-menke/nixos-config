@@ -97,7 +97,6 @@
             "class<(discord|vesktop|webcord)>": "󰙯",
             "class<(blender|org\\.blender\\.blender)>": "󰂫",
             "class<(steam|steam_app_\\d+)>": "󰓓", // also Steam's games
-            "class<(krita|org\\.kde\\.krita)>": "", // nf-linux-krita
             "class<(signal|signal-desktop)>": "󰍩", // md-message_text
             "class<org\\.pwmt\\.zathura>": "󰈦", // md-file_pdf_box
             "class<imv>": "󰋩", // md-image

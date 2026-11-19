@@ -216,7 +216,6 @@ in
     home.homeDirectory = "/home/kirill";
 
     home.packages = [
-      pkgs.krita
       orca
       # T3 Code (pingdotgg/t3code): GUI control surface for Claude Code/omp.
       # `t3code-desktop` is the Electron app; `t3` the server + local web app.
