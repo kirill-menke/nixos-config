@@ -14,7 +14,8 @@
   # stay on the PC (and in Memos on the NAS).
   desktop.notesTabs = [ "work" ];
 
-  # The CodeCommit helpers (aliased below), for every user of the laptop
+  # The CodeCommit helpers and laptop-update (aliased below), for every user
+  # of the laptop
   home.packages = (
     with pkgs;
     [
@@ -134,6 +135,23 @@
           git -C "$TARGET_WT" push
         fi
       '')
+
+      # `update`: bump every input fetched from the network, then switch.
+      # The local checkouts the flake also pins (path: and git+file: inputs,
+      # e.g. kirifin and kirill.es for the NAS) live only on the PC, and a
+      # plain `nix flake update` stops at the first one missing here; their
+      # pins stay as the PC last locked them.
+      (pkgs.writeShellScriptBin "laptop-update" ''
+        set -euo pipefail
+        FLAKE=/home/kirill/.config/nixos
+        mapfile -t inputs < <(${pkgs.jq}/bin/jq -r '
+          .nodes as $n | $n.root.inputs | to_entries[]
+          | select($n[.value].original
+              | (.type == "path" or (.type == "git" and (.url | startswith("file:")))) | not)
+          | .key' "$FLAKE/flake.lock")
+        nix flake update --flake "$FLAKE" "''${inputs[@]}"
+        sudo nixos-rebuild switch --flake "$FLAKE#laptop"
+      '')
     ]
   );
 
@@ -163,7 +181,7 @@
     # The checkout of github.com/kirill-menke/nixos-config, also for lena
     # and christoph (their sudo rebuilds Kirill's checkout).
     rebuild = "sudo nixos-rebuild switch --flake /home/kirill/.config/nixos#laptop";
-    update = "nix flake update --flake /home/kirill/.config/nixos && sudo nixos-rebuild switch --flake /home/kirill/.config/nixos#laptop";
+    update = "laptop-update";
     # Claude Code comes from llm-agents, so this also bumps omp, Orca and t3code.
     update-claude = "nix flake update llm-agents --flake /home/kirill/.config/nixos && sudo nixos-rebuild switch --flake /home/kirill/.config/nixos#laptop";
     cc = "claude-commit";
