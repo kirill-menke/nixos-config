@@ -85,6 +85,7 @@ in
 {
   imports = [
     ../../modules/home/workstation.nix
+    ../../modules/home/bitwarden.nix
     ../../modules/home/kirill.nix
   ];
 

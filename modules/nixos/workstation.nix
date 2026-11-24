@@ -189,15 +189,12 @@
   };
 
   # Chrome policy (programs.chromium writes Google Chrome's too): the
-  # Catppuccin Mocha theme, like the rest of the desktop, and Bitwarden for the
-  # NAS's Vaultwarden (hosts/nas/vaultwarden.nix) in place of Chrome's own
-  # password manager.
+  # Catppuccin Mocha theme, like the rest of the desktop. Bitwarden:
+  # ./bitwarden.nix, on the hosts that use the NAS's Vaultwarden.
   programs.chromium = {
     enable = true;
     extensions = [
       "bkkmolkhemgaeaeggcmfbghljjjoofoh" # Catppuccin Mocha theme
-      "nngceckbapebfimnlniiiahkandclblb" # Bitwarden
     ];
-    extraOpts.PasswordManagerEnabled = false;
   };
 }

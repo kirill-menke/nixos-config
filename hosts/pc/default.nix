@@ -27,6 +27,7 @@
     ./vault.nix # Vaultwarden for agents: rbw and the vault fill tool
     ./calendar.nix # the NAS's calendars, synced for the bar's calendar card
     ../../modules/nixos/workstation.nix # what the PC shares with the laptop
+    ../../modules/nixos/bitwarden.nix # Chrome's password manager: the NAS's Vaultwarden
     ../../modules/nixos/git-fetch.nix # fetches the clones the NAS shares via git
   ];
 

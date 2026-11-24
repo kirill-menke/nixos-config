@@ -44,6 +44,32 @@
     Install.WantedBy = [ "timers.target" ];
   };
 
+  # Every 5 min: fast-forward the Orca CodePipeline plugin clone to origin/main,
+  # like vibe's orca-plugin-pull. Orca's devPluginPaths entry
+  # ~/orca/plugins/codepipeline is a symlink to its codepipeline/ folder, and
+  # Orca hot-reloads the worker. The clone's own credential helper calls `aws`
+  # (--profile research), hence the PATH; while the SSO login has expired, or
+  # uncommitted edits touch an updated file, a run fails and the next retries.
+  systemd.user.services.orca-plugin-pull = {
+    Unit = {
+      Description = "Pull the CodePipeline Orca plugin (orca-plugin main)";
+      ConditionPathExists = "%h/Documents/orca-plugin/.git";
+    };
+    Service = {
+      Type = "oneshot";
+      Environment = "PATH=/etc/profiles/per-user/kirill/bin:/run/current-system/sw/bin";
+      ExecStart = "${pkgs.git}/bin/git -C %h/Documents/orca-plugin pull --ff-only --quiet";
+    };
+  };
+  systemd.user.timers.orca-plugin-pull = {
+    Unit.Description = "Pull the CodePipeline Orca plugin every 5 minutes";
+    Timer = {
+      OnStartupSec = "2min";
+      OnUnitActiveSec = "5min";
+    };
+    Install.WantedBy = [ "timers.target" ];
+  };
+
   # Alt+Up/Down scroll kitty's scrollback one line (Ctrl+Shift+Up/Down still
   # work). Kitty consumes these keys, so apps inside it no longer see Alt+Up/Down.
   programs.kitty.keybindings = {

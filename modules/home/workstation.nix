@@ -99,14 +99,8 @@ in
         ublock-origin
         sponsorblock
         catppuccin-mocha-mauve
-        bitwarden # for the NAS's Vaultwarden (hosts/nas/vaultwarden.nix)
       ];
-      # Passwords live in Bitwarden only: no saving, autofill or generator.
-      settings = {
-        "signon.rememberSignons" = false;
-        "signon.autofillForms" = false;
-        "signon.generation.enabled" = false;
-      };
+      # Bitwarden: ./bitwarden.nix, for the users of the NAS's Vaultwarden.
     };
   };
 
