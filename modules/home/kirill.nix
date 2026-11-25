@@ -228,6 +228,18 @@ in
 
     programs.claude-code.package = lib.mkIf (cfg.agentBackend == "bedrock") claudeBedrock;
 
+    # The Translate and Explain cards (SUPER+SHIFT+T, a middle click, SUPER
+    # plus a middle click; dotfiles/waybar/scripts/card_translate.py) ask
+    # Haiku over Bedrock EU while this file exists, else over the Anthropic
+    # API with ~/.config/anthropic/api-key.
+    xdg.configFile."anthropic/bedrock.json" = lib.mkIf (cfg.agentBackend == "bedrock") {
+      text = builtins.toJSON {
+        profile = "research";
+        region = "eu-central-1";
+        model = "eu.anthropic.claude-haiku-5-5";
+      };
+    };
+
     # omp in Orca's terminals: kitty images with Unicode placeholders. Orca
     # isn't a terminal omp knows, so it probes and settles on SIXEL, and omp
     # repaints the whole transcript now and then; a SIXEL image whose top has

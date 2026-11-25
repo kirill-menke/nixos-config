@@ -12,11 +12,13 @@ dict.cc data the SUPER+T dictionary searches,
 ~/.local/share/dictcc/de-en.tsv (for personal use only, so never in this
 repo): its German meanings by word class, the most common German word
 first, offline. Anything longer, a word dict.cc lacks (an inflected form
-such as "went") and every explanation go to Claude Haiku 5.5 over the
-Anthropic API and stream in, ~1 s in all. The key is read from
-~/.config/anthropic/api-key for each card, so a new one needs no restart;
-the Claude subscription's monthly API credit (Ultra: $200) pays, at
-~$0.00004 a sentence.
+such as "went") and every explanation go to Claude Haiku 5.5 and stream
+in, ~1 s in all: over Amazon Bedrock where ~/.config/anthropic/bedrock.json
+names an AWS profile, region and model (kirill.agentBackend = "bedrock",
+modules/home/kirill.nix), else over the Anthropic API with the key in
+~/.config/anthropic/api-key, where the Claude subscription's monthly API
+credit (Ultra: $200) pays, at ~$0.00004 a sentence. Both files are read
+for each card, so a new key or profile needs no restart.
 
 The card opens complete, at the height it keeps: it reads the selection
 and a word's dict.cc lines before its first paint, and keeps the room
@@ -26,6 +28,7 @@ come, so neither the card nor its text jumps when they do.
 A click on the result, or on a meaning, copies it.
 """
 
+import json
 import math
 import os
 import re
@@ -34,6 +37,7 @@ import threading
 import time
 
 import anthropic
+import botocore.exceptions
 
 import gi
 
@@ -46,10 +50,10 @@ from cardkit import (CARD_W, MOCHA, Panel, button, copy_flash,  # noqa: E402
                      label, read_text, rounded_rect)
 
 DICT = os.path.expanduser("~/.local/share/dictcc/de-en.tsv")
-KEY_FILE = os.path.join(
-    os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),
-    "anthropic", "api-key")
-MODEL = "claude-haiku-5-5"
+CONFIG = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+KEY_FILE = os.path.join(CONFIG, "anthropic", "api-key")
+BEDROCK_FILE = os.path.join(CONFIG, "anthropic", "bedrock.json")
+MODEL = "claude-haiku-5-5"  # on the Anthropic API; Bedrock's is in its file
 MAX_CHARS = 5000   # of a longer selection only the start goes
 MAX_TOKENS = 4096  # room for the German of MAX_CHARS of English
 PER_CLASS = 5      # meanings shown per word class
@@ -267,16 +271,36 @@ def reason(err):
     return f"{err.status_code} {message or err.message}"
 
 
+def backend():
+    """Where Claude is asked: ("bedrock", profile, region, model) while
+    BEDROCK_FILE exists, else ("api", key, None, MODEL), or None without a
+    key either."""
+    try:
+        with open(BEDROCK_FILE) as f:
+            conf = json.load(f)
+    except FileNotFoundError:
+        key = read_text(KEY_FILE)
+        return ("api", key, None, MODEL) if key else None
+    return ("bedrock", conf["profile"], conf["region"], conf["model"])
+
+
 # One client while the host runs: its connection pool carries a connection
-# that is still open from the last request over to the next. A new key gets
-# a new client.
+# that is still open from the last request over to the next. A new key,
+# profile or region gets a new client.
 _client = None
+_client_for = None
 
 
-def client(key):
-    global _client
-    if _client is None or _client.api_key != key:
-        _client = anthropic.Anthropic(api_key=key, timeout=20.0)
+def client(how):
+    global _client, _client_for
+    kind, credential, region, _ = how
+    if _client is None or _client_for != how[:3]:
+        if kind == "bedrock":
+            _client = anthropic.AnthropicBedrock(
+                aws_profile=credential, aws_region=region, timeout=20.0)
+        else:
+            _client = anthropic.Anthropic(api_key=credential, timeout=20.0)
+        _client_for = how[:3]
     return _client
 
 
@@ -308,14 +332,15 @@ class TranslatePanel(Panel):
         self.cut = len(text) > MAX_CHARS
         self.text = text[:MAX_CHARS]
         self.senses = lookup(self.text) if self.dictionary else []
-        self.key = read_text(KEY_FILE)
+        self.backend = backend()
         self.answer = ""     # Claude's text so far
         self.result = None   # the label showing it
         self.line = 0        # px a line of it takes
         self.waiting = False  # bars pulse in its place until it comes
         self.fill()
         if self.result is not None:
-            threading.Thread(target=self._stream, args=(self.key, self.text),
+            threading.Thread(target=self._stream,
+                             args=(self.backend, self.text),
                              daemon=True).start()
 
     def fill(self):
@@ -337,7 +362,7 @@ class TranslatePanel(Panel):
                 for term, notes in terms:
                     self.body.pack_start(self._meaning(term, notes),
                                          False, False, 0)
-        elif not self.key:
+        elif self.backend is None:
             self._note("No Anthropic API key in "
                        + KEY_FILE.replace(os.path.expanduser("~"), "~", 1),
                        "bad")
@@ -399,14 +424,14 @@ class TranslatePanel(Panel):
         self.result.queue_draw()
         return GLib.SOURCE_CONTINUE
 
-    def _stream(self, key, text):
+    def _stream(self, how, text):
         """In a thread of its own: Claude's text, piece by piece, to the
         main loop. A card closed meanwhile ends the stream, and with it the
         tokens paid for."""
         ask = {"role": "user", "content": f"<text>{text}</text>"}
         try:
-            with client(key).messages.stream(
-                    model=MODEL, max_tokens=self.max_tokens,
+            with client(how).messages.stream(
+                    model=how[3], max_tokens=self.max_tokens,
                     system=self.system, messages=self.shots + [ask],
                     extra_body=self.settings) as stream:
                 for piece in stream.text_stream:
@@ -416,9 +441,19 @@ class TranslatePanel(Panel):
         except anthropic.APIStatusError as err:
             GLib.idle_add(self._failed, f"Claude: {reason(err)}")
         except anthropic.APIConnectionError:
-            GLib.idle_add(self._failed, "Can't reach the Anthropic API")
+            GLib.idle_add(self._failed, "Can't reach "
+                          + ("Bedrock" if how[0] == "bedrock"
+                             else "the Anthropic API"))
         except anthropic.AnthropicError as err:
             GLib.idle_add(self._failed, f"Claude: {err}")
+        # Bedrock's AWS credentials come from botocore, whose errors the
+        # SDK passes on as they are: an SSO login that has run out, most of
+        # all.
+        except botocore.exceptions.SSOError:
+            GLib.idle_add(self._failed, "AWS login expired: aws sso login"
+                          f" --profile {how[1]}")
+        except botocore.exceptions.BotoCoreError as err:
+            GLib.idle_add(self._failed, f"AWS: {err}")
         else:
             GLib.idle_add(self._finished)
 

@@ -29,8 +29,10 @@ let
     ps.icalendar
     ps.recurring-ical-events
     # anthropic: the Translate card's Claude Haiku translations, streamed
-    # (the key lives in ~/.config/anthropic/api-key, outside the store)
+    # (the key lives in ~/.config/anthropic/api-key, outside the store);
+    # boto3, the AWS credentials (an SSO profile too) for its Bedrock client
     ps.anthropic
+    ps.boto3
   ]);
 
   # The bar's scripts, as the waybar-popups source and the bar's reload
