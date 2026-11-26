@@ -204,20 +204,36 @@ let
       };
     };
 
-    Claude = {
-      # The plan's weekly limit as claude-usage.nix last read it. `ok` is
-      # checked too: a run that could not read the limit writes none, and
-      # Gatus counts a missing number as under 80. No "%" in the name: it
-      # ends up in the check's URL.
-      "Weekly limit under 80 percent" = {
-        url = local "${toString config.nas.claudeUsagePort}/usage.json";
-        interval = "10m";
-        conditions = ok ++ [
-          "[BODY].ok == true"
-          "[BODY].limit.used_percent < 80"
-        ];
+    Claude =
+      let
+        # What claude-usage.nix last wrote, every 30 minutes.
+        usage = {
+          url = local "${toString config.nas.claudeUsagePort}/usage.json";
+          interval = "10m";
+        };
+      in
+      {
+        # The plan's weekly limit. `ok` is checked too: a run that could not
+        # read the limit writes none, and Gatus counts a missing number as
+        # under 80. No "%" in the name: it ends up in the check's URL.
+        "Weekly limit under 80 percent" = usage // {
+          conditions = ok ++ [
+            "[BODY].ok == true"
+            "[BODY].limit.used_percent < 80"
+          ];
+        };
+        # Claude Code's login on this box, which `claude -p` runs on
+        # (auto-apply, Paperless). It ends after a fixed time and nothing
+        # renews it. The second check fails 3 days ahead (LOGIN_WARN_DAYS in
+        # claude-usage.py), so there is time for `claude auth login`; the
+        # first one fails once it has ended.
+        "Code login valid" = usage // {
+          conditions = ok ++ [ "[BODY].login.valid == true" ];
+        };
+        "Code login lasts over 3 days" = usage // {
+          conditions = ok ++ [ "[BODY].login.lasting == true" ];
+        };
       };
-    };
   };
 
   endpoints = lib.concatLists (

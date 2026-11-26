@@ -21,6 +21,13 @@ or in a session that names none, is left out.
 
 A failed run writes {"ok": false, "error": ...} and exits 1; the Gatus check
 on usage.json requires `ok`, so the phone hears about that as well.
+
+collect also asks `claude auth status` for Claude Code's own login, the one
+auto-apply's and Paperless's `claude -p` calls run on. That login ends after
+a fixed time (28 days in November 2026) and nothing renews it: every call
+fails from then on, until someone runs `claude auth login` on this box. Two
+more Gatus checks read it: `login.lasting` turns false LOGIN_WARN_DAYS
+before the end, `login.valid` at the end.
 """
 
 import json
@@ -28,16 +35,20 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime
 
 HOME = os.path.expanduser("~")
 OMP_SESSIONS = os.path.join(HOME, ".omp/agent/sessions")
 CLAUDE_PROJECTS = os.path.join(HOME, ".claude/projects")
 OMP = os.environ.get("OMP_BIN", "omp")
+CLAUDE = os.environ.get("CLAUDE_BIN", "claude")
 WEEK = 7 * 24 * 3600
 # What `scan` reports: the current window can have begun up to a week ago.
 SCAN_DAYS = 8
 NIGHTLY_MARK = "/profile-nightly/run/prompt.md"
 PC_SOURCES = 4
+# gatus.nix names this number in its check "Code login lasts over 3 days".
+LOGIN_WARN_DAYS = 3
 
 
 def project_of(folder):
@@ -259,16 +270,42 @@ def summary(state_dir):
     }
 
 
+def login():
+    done = subprocess.run([CLAUDE, "auth", "status", "--json"],
+                          capture_output=True, text=True, timeout=60)
+    status = json.loads(done.stdout)
+    valid = status.get("loggedIn") is True
+    days = None
+    if valid and status.get("loginExpiresAt"):
+        end = datetime.fromisoformat(
+            status["loginExpiresAt"].replace("Z", "+00:00"))
+        days = round((end.timestamp() - time.time()) / (24 * 3600), 1)
+        # Claude Code says "logged in" until its next call finds out.
+        valid = days > 0
+    return {
+        "valid": valid,
+        # A login that names no end (a setup token) lasts.
+        "lasting": valid and (days is None or days > LOGIN_WARN_DAYS),
+        "days_left": days,
+    }
+
+
 def collect(state_dir):
     try:
         out = summary(state_dir)
     except Exception as error:
         out = {"ok": False, "error": f"{type(error).__name__}: {error}"[:300]}
+    try:
+        out["login"] = login()
+    except Exception as error:
+        out["login"] = {"valid": False, "lasting": False,
+                        "error": f"{type(error).__name__}: {error}"[:300]}
     out["updated"] = clock(time.time())
     target = os.path.join(state_dir, "usage.json")
     with open(target + ".tmp", "w") as f:
         json.dump(out, f, ensure_ascii=False, indent=1)
     os.replace(target + ".tmp", target)
+    print(f"Claude Code login: {json.dumps(out['login'])}")
     if not out["ok"]:
         print(out["error"], file=sys.stderr)
         return 1

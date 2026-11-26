@@ -13,8 +13,13 @@
 # (claude-usage.py says where they come from), into
 # /var/lib/claude-usage/usage.json. nginx serves that one file on loopback:
 #   glance.nix   the "Claude usage" card
-#   gatus.nix    the check "Weekly limit under 80 percent", whose alert goes
+#   gatus.nix    the checks "Weekly limit under 80 percent", "Code login
+#                valid" and "Code login lasts over 3 days", whose alerts go
 #                to the phone like every other one
+#
+# The same run notes how long Claude Code's own login still holds (`claude
+# auth status`): it ends after a fixed time, and auto-apply's and Paperless's
+# `claude -p` calls then fail until someone logs in again.
 #
 # The PC's share arrives as pc.json in the same directory: this box cannot
 # reach the PC, so a user timer there (~/.local/share/systemd/user/
@@ -23,7 +28,7 @@
 # minutes while the PC is on. A PC that is off spends nothing, so its last
 # file stays right.
 #
-#   systemctl start claude-usage; journalctl -u claude-usage    one line a run
+#   systemctl start claude-usage; journalctl -u claude-usage    two lines a run
 #
 {
   config,
@@ -47,6 +52,7 @@ in
     wants = [ "network-online.target" ];
     environment = {
       OMP_BIN = "${agents.omp}/bin/omp";
+      CLAUDE_BIN = "${agents.claude-code}/bin/claude";
       # The card's clock times.
       TZ = "Europe/Berlin";
     };
